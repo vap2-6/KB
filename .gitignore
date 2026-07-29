@@ -1,0 +1,56 @@
+# Dependencies & Package Managers
+node_modules/
+.npm/
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Build & Output Directories
+dist/
+dist-ssr/
+build/
+*.egg-info/
+
+# Local Databases & Runtime Data
+mysql_local_data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Uploads & Generated Files
+uploads/
+generated_pdfs/
+temp/
+tmp/
+
+# Environment Configuration Files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDEs, Editors & OS Files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+

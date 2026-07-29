@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Portal - Ramakrishna Mission Vivekananda College</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- QRCode JS Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #faf8f5;
+        }
+        .heading-font {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-zinc-800 flex flex-col justify-between">
+
+    <!-- Navbar -->
+    <nav class="bg-white border-b border-zinc-200 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMobileSidebar()" id="mobileMenuBtn" class="hidden max-md:block p-2 text-zinc-500 hover:text-zinc-800 rounded-xl hover:bg-zinc-100 transition-colors">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                </button>
+                <img src="logo.png" alt="Ramakrishna Mission Emblem" class="h-10 w-auto object-contain">
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div id="navUserBadge" class="hidden items-center gap-3 pl-2 border-l border-zinc-200">
+                    <div class="hidden sm:flex flex-col items-end">
+                        <span id="navUserName" class="text-xs font-bold text-zinc-950 leading-none">--</span>
+                        <span id="navUserId" class="text-[9px] text-zinc-400 font-bold uppercase mt-0.5">--</span>
+                    </div>
+                    <div class="w-9 h-9 rounded-full bg-zinc-100 overflow-hidden border border-amber-500/30">
+                        <img id="navUserPhoto" src="" alt="Profile" class="w-full h-full object-cover">
+                    </div>
+                </div>
+                <button onclick="logout()" id="navSignOutBtn" class="hidden flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100/70 text-rose-600 rounded-xl transition-all cursor-pointer text-xs font-bold uppercase tracking-wider border border-rose-100/50">
+                    <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                    <span class="hidden xs:inline">Sign Out</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Workspace -->
+    <div class="flex-grow flex w-full max-w-7xl mx-auto relative">
+        
+        <!-- SIDEBAR NAVIGATION -->
+        <aside id="sidebar" class="hidden flex-col w-64 bg-white border-r border-zinc-200 p-4 shrink-0 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:pt-20">
+            <div class="mb-4 text-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200/50">
+                <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Portal Navigation</p>
+                <p class="text-xs text-amber-600 font-bold font-display mt-0.5">RKMVC Student Hub</p>
+            </div>
+
+            <nav class="flex-grow space-y-1">
+                <button onclick="switchTab('canteen')" id="tab-canteen" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider bg-amber-500 text-zinc-950 font-extrabold shadow-lg shadow-amber-500/15">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0"></i>
+                    <span>Dashboard</span>
+                </button>
+                <button onclick="switchTab('history')" id="tab-history" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition">
+                    <i data-lucide="history" class="w-4 h-4 shrink-0"></i>
+                    <span>History</span>
+                </button>
+                <button onclick="switchTab('profile')" id="tab-profile" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition">
+                    <i data-lucide="user" class="w-4 h-4 shrink-0"></i>
+                    <span>My Profile</span>
+                </button>
+                <button onclick="openChangePasswordModal()" id="tab-changepassword" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition">
+                    <i data-lucide="lock" class="w-4 h-4 shrink-0"></i>
+                    <span>Change Password</span>
+                </button>
+            </nav>
+
+            <div id="theme-switcher-container" class="pt-4 mt-4 border-t border-zinc-200">
+                <!-- Theme Switcher Segmented Button -->
+                <div class="mb-4">
+                    <p class="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2 pl-1">Theme</p>
+                    <div id="theme-segmented-bg" class="grid grid-cols-2 p-1 rounded-xl text-xs font-semibold bg-zinc-100">
+                        <button
+                            onclick="setTheme('white')"
+                            id="theme-btn-white"
+                            class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all bg-white text-zinc-950 shadow-sm font-bold"
+                        >
+                            <i data-lucide="sun" class="w-3.5 h-3.5"></i>
+                            <span>White</span>
+                        </button>
+                        <button
+                            onclick="setTheme('black')"
+                            id="theme-btn-black"
+                            class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all text-zinc-500 hover:text-zinc-800"
+                        >
+                            <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                            <span>Black</span>
+                        </button>
+                    </div>
+                </div>
+
+                <button onclick="logout()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition">
+                    <i data-lucide="log-out" class="w-4 h-4 shrink-0"></i>
+                    <span>Sign out</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow p-4 sm:p-8 flex flex-col items-center justify-center min-w-0">
+            
+            <!-- LOGIN PANEL -->
+            <div id="loginSection" class="w-full max-w-md bg-white rounded-3xl border border-zinc-200 overflow-hidden shadow-xl shadow-zinc-100">
+                <div class="p-8 text-center border-b border-zinc-100 bg-zinc-50 relative overflow-hidden">
+                    <div class="absolute -top-10 -right-10 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl"></div>
+                    <img src="logo.png" alt="Ramakrishna Mission Vivekananda College Logo" class="h-16 mx-auto mb-4 object-contain">
+                    <h2 class="font-display text-xl font-bold text-zinc-900 tracking-tight">Student Dashboard</h2>
+                    <p class="text-xs text-zinc-500 mt-1">Sign in with Academic ID to access courses, fees, and canteen</p>
+                </div>
+
+                <form onsubmit="handleLogin(event)" class="p-8 space-y-5">
+                    <div id="loginError" class="hidden bg-rose-50 text-rose-600 border border-rose-200 px-4 py-3 rounded-xl flex items-start gap-2.5 text-xs font-semibold">
+                        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0 mt-0.5 text-rose-500"></i>
+                        <span id="loginErrorText">Invalid credentials.</span>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-wider">Register No</label>
+                        <div class="relative">
+                            <i data-lucide="user" class="absolute left-3.5 top-3.5 w-4 h-4 text-zinc-400"></i>
+                            <input type="text" id="username" placeholder="243301034021" class="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 text-zinc-900 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none text-sm font-semibold uppercase placeholder-zinc-400">
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-wider">Password</label>
+                        <div class="relative">
+                            <i data-lucide="lock" class="absolute left-3.5 top-3.5 w-4 h-4 text-zinc-400"></i>
+                            <input type="password" id="password" placeholder="pass123" class="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 text-zinc-900 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none text-sm font-semibold placeholder-zinc-400">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-zinc-950 py-3.5 rounded-xl font-bold shadow-lg shadow-amber-500/10 flex items-center justify-center gap-2 text-sm cursor-pointer transition">
+                        <span>Login Securely</span>
+                        <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+
+                    <div class="pt-4 border-t border-zinc-100 text-center">
+                        <p class="text-xs text-zinc-500">Default Student Credentials:</p>
+                        <div class="mt-1.5 flex items-center justify-center gap-3">
+                            <span class="text-xs bg-zinc-100 text-zinc-850 px-2.5 py-1 rounded font-mono font-bold">243301034021</span>
+                            <span class="text-xs text-zinc-400">|</span>
+                            <span class="text-xs bg-zinc-100 text-zinc-850 px-2.5 py-1 rounded font-mono font-bold">pass123</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- DASHBOARD CONTAINER PANEL -->
+            <div id="portalSection" class="hidden w-full h-full flex flex-col space-y-6">
+                
+                <!-- TAB 1: DASHBOARD VIEW -->
+                <div id="view-dashboard" class="space-y-6 w-full">
+                </div>
+
+                <!-- TAB 2: PROFILE VIEW -->
+                <div id="view-profile" class="hidden space-y-6 w-full">
+                    <div class="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row gap-8 items-center md:items-start shadow-sm">
+                        <div class="flex flex-col items-center shrink-0">
+                            <div class="w-40 h-40 rounded-3xl overflow-hidden border-4 border-zinc-100 shadow-xl relative ring-4 ring-amber-500/10">
+                                <img id="profilePhoto" src="" alt="Profile" class="w-full h-full object-cover">
+                            </div>
+                            <span id="profileId" class="mt-3 bg-amber-500/10 text-amber-600 border border-amber-500/20 text-[10px] font-mono font-bold px-3 py-1 rounded-full uppercase tracking-widest">ID: --</span>
+                        </div>
+
+                        <div class="flex-grow w-full space-y-6">
+                            <div>
+                                <p class="text-xs font-bold text-amber-600 uppercase tracking-widest">Student Profile</p>
+                                <h2 id="profileName" class="text-2xl font-bold text-zinc-900 font-display mt-0.5">--</h2>
+                                <p id="profileRoll" class="text-xs text-zinc-500 font-semibold">--</p>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-zinc-150 pt-4 text-xs">
+                                <div class="space-y-2">
+                                    <div class="grid grid-cols-2 gap-2 text-zinc-600">
+                                        <span class="text-zinc-400">Department:</span>
+                                        <span id="profileDept" class="font-semibold text-zinc-900">--</span>
+                                        <span class="text-zinc-400">Academic Year:</span>
+                                        <span id="profileYear" class="font-semibold text-zinc-900">--</span>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-2">
+                                    <div class="grid grid-cols-2 gap-2 text-zinc-600">
+                                        <span class="text-zinc-400">Email:</span>
+                                        <span id="profileEmail" class="font-semibold text-zinc-900">nakumergb28gmail@gmail.com</span>
+                                        <span class="text-zinc-400">Contact Number:</span>
+                                        <span class="font-semibold text-zinc-900">+91 98402 10385</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+
+                <!-- TAB 6: CANTEEN TOKENS -->
+                <div id="view-canteen" class="space-y-6 w-full max-w-4xl mx-auto">
+                    <!-- Header -->
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-emerald-800/10 border border-emerald-500/20 p-6 rounded-3xl">
+                      <div>
+                        <span class="text-[10px] font-bold text-emerald-700 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-full">
+                          Meal Management
+                        </span>
+                        <h2 class="text-2xl sm:text-3xl font-bold text-zinc-950 font-display tracking-tight mt-2.5">
+                          Canteen Token Portal
+                        </h2>
+                        <p class="text-xs text-emerald-800 font-medium mt-1">
+                          Generate or view your active meal tokens below.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      
+                      <!-- Breakfast Token Card -->
+                      <div class="bg-white border border-zinc-200/80 rounded-[2rem] p-6 sm:p-8 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[280px]">
+                        <!-- Background subtle art -->
+                        <div class="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl"></div>
+                        
+                        <div>
+                          <div class="flex items-center justify-between mb-4">
+                            <span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                              Morning Meal
+                            </span>
+                            <span class="text-[10px] font-semibold text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-full">
+                              open - 08:00 am to 09:00 am
+                            </span>
+                          </div>
+
+                          <div class="flex items-start gap-4">
+                            <div class="w-14 h-14 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-600 border border-emerald-500/20 shrink-0">
+                              <i data-lucide="coffee" class="w-7 h-7"></i>
+                            </div>
+                            <div>
+                              <h3 class="text-lg sm:text-xl font-bold text-zinc-950 font-display">Breakfast Token</h3>
+                              <p class="text-xs text-zinc-500 mt-1">Available for morning slot scanning</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="mt-8 pt-4 border-t border-zinc-100">
+                          <!-- Inactive state -->
+                          <div id="breakfast-inactive-container">
+                            <button 
+                              onclick="generateToken('Breakfast')"
+                              class="w-full bg-zinc-900 hover:bg-zinc-800 text-white py-3 px-5 rounded-2xl font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <i data-lucide="qr-code" class="w-4 h-4"></i>
+                              <span>Generate Breakfast Token</span>
+                            </button>
+                          </div>
+                          <!-- Active state -->
+                          <div id="breakfast-active-container" class="hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl">
+                              <div class="flex items-center gap-2">
+                                <span class="relative flex h-2.5 w-2.5">
+                                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                </span>
+                                <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">Activated</span>
+                              </div>
+                              <span id="breakfast-timer" class="text-xs font-bold text-emerald-800 bg-emerald-500/10 px-2.5 py-1 rounded-full font-mono">
+                                45m left
+                              </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Lunch Token Card -->
+                      <div class="bg-white border border-zinc-200/80 rounded-[2rem] p-6 sm:p-8 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[280px]">
+                        <!-- Background subtle art -->
+                        <div class="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl"></div>
+                        
+                        <div>
+                          <div class="flex items-center justify-between mb-4">
+                            <span class="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                              Afternoon Meal
+                            </span>
+                            <span class="text-[10px] font-semibold text-emerald-700 bg-emerald-500/10 px-2.5 py-1 rounded-full">
+                              open - 12:00 pm to 1:00 pm
+                            </span>
+                          </div>
+
+                          <div class="flex items-start gap-4">
+                            <div class="w-14 h-14 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-600 border border-emerald-500/20 shrink-0">
+                              <i data-lucide="utensils" class="w-7 h-7"></i>
+                            </div>
+                            <div>
+                              <h3 class="text-lg sm:text-xl font-bold text-zinc-950 font-display">Lunch Token</h3>
+                              <p class="text-xs text-zinc-500 mt-1">Standard lunch ticket with staff scanner verification</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="mt-8 pt-4 border-t border-zinc-100">
+                          <!-- Inactive state -->
+                          <div id="lunch-inactive-container">
+                            <button 
+                              onclick="generateToken('Lunch')"
+                              class="w-full bg-zinc-900 hover:bg-zinc-800 text-white py-3 px-5 rounded-2xl font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <i data-lucide="qr-code" class="w-4 h-4"></i>
+                              <span>Generate Lunch Token</span>
+                            </button>
+                          </div>
+                          <!-- Active state -->
+                          <div id="lunch-active-container" class="hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl">
+                              <div class="flex items-center gap-2">
+                                <span class="relative flex h-2.5 w-2.5">
+                                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                </span>
+                                <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">Activated</span>
+                              </div>
+                              <span id="lunch-timer" class="text-xs font-bold text-emerald-800 bg-emerald-500/10 px-2.5 py-1 rounded-full font-mono">
+                                45m left
+                              </span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                </div>
+
+                <!-- TAB: HISTORY VIEW -->
+                <div id="view-history" class="hidden space-y-6 w-full">
+                    <!-- Token History Card -->
+                    <div class="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2 text-zinc-900">
+                                <i data-lucide="history" class="w-5 h-5 text-emerald-600"></i>
+                                <h3 class="text-lg font-bold">History</h3>
+                            </div>
+                            <button onclick="clearTokenHistory()" class="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 px-3 py-1.5 rounded-xl transition cursor-pointer font-bold">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                <span>Clear History</span>
+                            </button>
+                        </div>
+                        <div id="tokenHistoryList" class="max-h-60 overflow-y-auto pr-1 space-y-2">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+
+    </div>
+
+    <!-- PAYMENT MODAL -->
+    <div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div onclick="closePayModal()" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white border border-zinc-200 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden z-10 p-6 space-y-4 text-zinc-800">
+            <h3 class="font-bold text-lg text-zinc-900">Clear Fee Outstanding</h3>
+            <p class="text-xs text-zinc-500">Make secure digital payment of ₹25,000 to college finance gateway.</p>
+            
+            <div class="space-y-1">
+                <label class="text-[10px] text-zinc-400 font-bold uppercase">Enter UPI ID</label>
+                <input id="upiInput" type="text" placeholder="nandakumar@okaxis" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 text-zinc-800 rounded-xl outline-none text-xs font-semibold placeholder-zinc-400">
+            </div>
+
+            <div class="pt-4 border-t border-zinc-200 flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] text-zinc-400 uppercase font-bold tracking-wider leading-none">Amount Due</span>
+                    <p class="text-sm font-bold text-zinc-800 font-mono">₹25,000</p>
+                </div>
+                <button onclick="submitFeePayment()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-md shadow-amber-500/10 cursor-pointer">Confirm Pay</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR SCAN MODAL -->
+    <div id="qrModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div onclick="closeModal()" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white border border-zinc-200 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden z-10 p-6 text-center text-zinc-800">
+            <div class="inline-flex items-center gap-1.5 bg-amber-500/10 text-amber-600 border border-amber-500/20 px-3 py-1 rounded-full text-xs font-bold uppercase mb-4" id="modalTitle">Token</div>
+            
+            <div class="flex items-center justify-center gap-3 mb-6">
+                <img id="modalStudentPhoto" src="" alt="Profile" class="w-10 h-10 rounded-full object-cover border-2 border-amber-500 shadow-sm">
+                <div class="text-left">
+                    <h4 id="modalStudentName" class="font-bold text-sm text-zinc-900">--</h4>
+                    <span id="modalStudentRoll" class="text-[10px] text-zinc-400">--</span>
+                </div>
+            </div>
+
+            <div class="p-4 bg-zinc-55 border border-zinc-200 rounded-2xl inline-block mb-4 shadow-inner">
+                <div id="qrcode" class="w-48 h-48 flex items-center justify-center bg-white rounded-xl"></div>
+            </div>
+
+            <div class="text-center mb-6 space-y-3">
+                <div>
+                    <span class="text-emerald-600 font-extrabold text-xs uppercase tracking-widest"><i class="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block mr-1 animate-ping"></i> SCAN READY</span>
+                    <p class="text-[10px] text-zinc-400 mt-1">Value: <strong id="modalQrContent" class="text-zinc-600 font-mono">--</strong></p>
+                </div>
+                <button onclick="simulateStaffScan()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs py-3 px-4 rounded-xl transition cursor-pointer shadow-md flex items-center justify-center gap-1.5">
+                    <i data-lucide="check-circle" class="w-4 h-4"></i>
+                    <span>Simulate Staff Scan & Accept</span>
+                </button>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="window.print()" class="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold text-sm py-2.5 rounded-xl transition cursor-pointer">Print</button>
+                <button onclick="closeModal()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold text-sm py-2.5 rounded-xl transition cursor-pointer shadow-md shadow-amber-500/10">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHANGE PASSWORD MODAL -->
+    <div id="passwordModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div onclick="closePasswordModal()" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+        <div class="relative w-full max-w-md z-10 flex flex-col">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-3xl font-normal text-zinc-900 tracking-tight font-display">Change Password</h3>
+                <button onclick="closePasswordModal()" class="text-zinc-400 hover:text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 p-2 rounded-full transition cursor-pointer shadow-sm">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="bg-white border border-zinc-200 rounded-2xl p-6 sm:p-8 shadow-2xl text-zinc-800">
+                <form onsubmit="handleChangePassword(event)" class="space-y-5">
+                    <div id="passwordError" class="hidden bg-rose-50 text-rose-600 border border-rose-200 px-4 py-3 rounded-xl flex items-start gap-2.5 text-xs font-semibold">
+                        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0 mt-0.5 text-rose-500"></i>
+                        <span id="passwordErrorText"></span>
+                    </div>
+
+                    <div id="passwordSuccess" class="hidden bg-emerald-50 text-emerald-600 border border-emerald-200 px-4 py-3 rounded-xl flex items-start gap-2.5 text-xs font-semibold">
+                        <i data-lucide="check-circle" class="w-4 h-4 shrink-0 mt-0.5 text-emerald-500"></i>
+                        <span>Password changed successfully!</span>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-sm font-bold text-zinc-800">Current Password</label>
+                        <input type="password" id="currentPasswordInput" class="w-full px-4 py-3 bg-white border border-zinc-200 text-zinc-800 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition text-sm font-semibold">
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-sm font-bold text-zinc-800">New Password</label>
+                        <input type="password" id="newPasswordInput" oninput="updatePasswordRules(this.value)" class="w-full px-4 py-3 bg-white border border-zinc-200 text-zinc-800 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition text-sm font-semibold">
+                    </div>
+
+                    <div class="space-y-2 py-1">
+                        <p class="text-sm font-bold text-zinc-800">Password should contain</p>
+                        <div class="space-y-1.5 text-sm text-zinc-800 font-medium">
+                            <div class="flex items-center gap-2">
+                                <span id="rule-upper">❌</span>
+                                <span>1 upper case letter,</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="rule-lower">❌</span>
+                                <span>1 lower case letter,</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="rule-digit">❌</span>
+                                <span>1 digit,</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="rule-special">❌</span>
+                                <span>1 special character,</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="rule-length">❌</span>
+                                <span>at least 8 characters</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-sm font-bold text-zinc-800">Confirm New Password</label>
+                        <input type="password" id="confirmPasswordInput" class="w-full px-4 py-3 bg-white border border-zinc-200 text-zinc-800 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition text-sm font-semibold">
+                    </div>
+
+                    <div class="pt-2">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg text-sm transition shadow-sm cursor-pointer">
+                            Submit
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="p-4 text-center text-[10px] text-zinc-500 border-t border-zinc-200 bg-white">
+    </footer>
+
+    <!-- Script Logic -->
+    <script>
+        const STUDENTS = [
+            {
+                id: "243301034021",
+                password: "pass123",
+                name: "NANDAKUMAR R",
+                roll: "243301034021",
+                dept: "Computer Applications",
+                year: "3rd Year (Final)",
+                photo: "src/assets/images/regenerated_image_1784543193268.jpg"
+            },
+            {
+                id: "S1002",
+                password: "pass123",
+                name: "Priya Sharma",
+                roll: "CSE22045",
+                dept: "Computer Science",
+                year: "2nd Year",
+                photo: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=400&auto=format&fit=crop"
+            },
+            {
+                id: "S1003",
+                password: "pass123",
+                name: "Amit Patel",
+                roll: "ME20012",
+                dept: "Mechanical Engineering",
+                year: "4th Year",
+                photo: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=400&auto=format&fit=crop"
+            }
+        ];
+
+        let currentStudent = null;
+        let activeTab = 'profile';
+        let feeStatus = 'PENDING';
+        let mobileSidebarOpen = false;
+
+        let currentSelectedMeal = null;
+        let isLunchActivated = localStorage.getItem('rkmvc_lunch_activated') === 'true';
+        let lunchTimeLeft = localStorage.getItem('rkmvc_lunch_time_left') ? parseInt(localStorage.getItem('rkmvc_lunch_time_left'), 10) : 2700;
+        let isBreakfastActivated = localStorage.getItem('rkmvc_breakfast_activated') === 'true';
+        let breakfastTimeLeft = localStorage.getItem('rkmvc_breakfast_time_left') ? parseInt(localStorage.getItem('rkmvc_breakfast_time_left'), 10) : 2700;
+
+        let currentTheme = localStorage.getItem('rkmvc_theme') || 'white';
+
+        function applyTheme(theme) {
+            currentTheme = theme;
+            localStorage.setItem('rkmvc_theme', theme);
+
+            const isDark = theme === 'black';
+
+            // 1. Body and layout
+            const body = document.body;
+            if (body) {
+                if (isDark) {
+                    body.classList.remove('text-zinc-800');
+                    body.classList.add('bg-[#0a0a0c]', 'text-zinc-200');
+                    body.style.backgroundColor = '#0a0a0c';
+                } else {
+                    body.classList.remove('bg-[#0a0a0c]', 'text-zinc-200');
+                    body.classList.add('text-zinc-800');
+                    body.style.backgroundColor = '#faf8f5';
+                }
+            }
+
+            // 2. Navbar
+            const nav = document.querySelector('nav');
+            if (nav) {
+                if (isDark) {
+                    nav.className = "bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40 transition-colors duration-300";
+                    const navUserName = document.getElementById('navUserName');
+                    if (navUserName) navUserName.className = "text-xs font-bold text-zinc-150 leading-none";
+                    const navUserId = document.getElementById('navUserId');
+                    if (navUserId) navUserId.className = "text-[9px] text-zinc-400 font-bold uppercase mt-0.5";
+                } else {
+                    nav.className = "bg-white border-b border-zinc-200 sticky top-0 z-40 transition-colors duration-300";
+                    const navUserName = document.getElementById('navUserName');
+                    if (navUserName) navUserName.className = "text-xs font-bold text-zinc-950 leading-none";
+                    const navUserId = document.getElementById('navUserId');
+                    if (navUserId) navUserId.className = "text-[9px] text-zinc-400 font-bold uppercase mt-0.5";
+                }
+            }
+
+            // 3. Sidebar
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) {
+                if (isDark) {
+                    sidebar.className = "hidden flex-col w-64 bg-zinc-900 border-r border-zinc-850 p-4 shrink-0 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:pt-20 transition-colors duration-300";
+                    const sideTitle = sidebar.querySelector('div');
+                    if (sideTitle) sideTitle.className = "mb-4 text-center p-3 bg-zinc-800/50 rounded-2xl border border-zinc-700/50 transition-colors duration-300";
+                } else {
+                    sidebar.className = "hidden flex-col w-64 bg-white border-r border-zinc-200 p-4 shrink-0 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:pt-20 transition-colors duration-300";
+                    const sideTitle = sidebar.querySelector('div');
+                    if (sideTitle) sideTitle.className = "mb-4 text-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200/50 transition-colors duration-300";
+                }
+                updateSidebarButtons();
+            }
+
+            // 4. Segmented buttons background and classes
+            const segmentedBg = document.getElementById('theme-segmented-bg');
+            const btnWhite = document.getElementById('theme-btn-white');
+            const btnBlack = document.getElementById('theme-btn-black');
+            if (segmentedBg && btnWhite && btnBlack) {
+                if (isDark) {
+                    segmentedBg.className = "grid grid-cols-2 p-1 rounded-xl text-xs font-semibold bg-zinc-800";
+                    btnWhite.className = "flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all text-zinc-400 hover:text-zinc-200";
+                    btnBlack.className = "flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all bg-zinc-950 text-white shadow-sm font-bold";
+                } else {
+                    segmentedBg.className = "grid grid-cols-2 p-1 rounded-xl text-xs font-semibold bg-zinc-100";
+                    btnWhite.className = "flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all bg-white text-zinc-950 shadow-sm font-bold";
+                    btnBlack.className = "flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg cursor-pointer transition-all text-zinc-500 hover:text-zinc-800";
+                }
+            }
+
+            // 5. Login Card / Portal Sections
+            const loginSection = document.getElementById('loginSection');
+            if (loginSection) {
+                if (isDark) {
+                    loginSection.className = "w-full max-w-md bg-zinc-900 rounded-3xl border border-zinc-800 overflow-hidden shadow-xl transition-colors duration-300";
+                    const cardHeader = loginSection.querySelector('div');
+                    if (cardHeader) cardHeader.className = "p-8 text-center border-b border-zinc-800 bg-zinc-900/50 relative overflow-hidden";
+                    const title = loginSection.querySelector('h2');
+                    if (title) title.className = "font-display text-xl font-bold text-zinc-100 tracking-tight";
+                } else {
+                    loginSection.className = "w-full max-w-md bg-white rounded-3xl border border-zinc-200 overflow-hidden shadow-xl shadow-zinc-100 transition-colors duration-300";
+                    const cardHeader = loginSection.querySelector('div');
+                    if (cardHeader) cardHeader.className = "p-8 text-center border-b border-zinc-100 bg-zinc-50 relative overflow-hidden";
+                    const title = loginSection.querySelector('h2');
+                    if (title) title.className = "font-display text-xl font-bold text-zinc-900 tracking-tight";
+                }
+            }
+
+            // 6. View Profile Card
+            const viewProfile = document.getElementById('view-profile');
+            if (viewProfile) {
+                const profileCard = viewProfile.querySelector('div');
+                if (profileCard) {
+                    if (isDark) {
+                        profileCard.className = "bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row gap-8 items-center md:items-start transition-colors duration-300";
+                        const profileName = document.getElementById('profileName');
+                        if (profileName) profileName.className = "text-2xl font-bold text-zinc-100 font-display mt-0.5";
+                    } else {
+                        profileCard.className = "bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row gap-8 items-center md:items-start transition-colors duration-300";
+                        const profileName = document.getElementById('profileName');
+                        if (profileName) profileName.className = "text-2xl font-bold text-zinc-900 font-display mt-0.5";
+                    }
+                }
+            }
+
+            // 7. Meal Token Cards
+            const canteenCards = document.querySelectorAll('#view-canteen .grid > div');
+            canteenCards.forEach(card => {
+                if (isDark) {
+                    card.className = "bg-zinc-900 border border-zinc-800 rounded-[2rem] p-6 sm:p-8 shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[280px] transition-colors duration-300";
+                    const title = card.querySelector('h3');
+                    if (title) title.className = "text-lg sm:text-xl font-bold text-zinc-100 font-display";
+                } else {
+                    card.className = "bg-white border border-zinc-200/80 rounded-[2rem] p-6 sm:p-8 shadow-xs relative overflow-hidden flex flex-col justify-between min-h-[280px] transition-colors duration-300";
+                    const title = card.querySelector('h3');
+                    if (title) title.className = "text-lg sm:text-xl font-bold text-zinc-950 font-display";
+                }
+            });
+
+            // 8. History Card
+            const viewHistory = document.getElementById('view-history');
+            if (viewHistory) {
+                const historyCard = viewHistory.querySelector('div');
+                if (historyCard) {
+                    if (isDark) {
+                        historyCard.className = "bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 transition-colors duration-300";
+                        const histTitle = historyCard.querySelector('h3');
+                        if (histTitle) histTitle.className = "text-lg font-bold text-zinc-100";
+                    } else {
+                        historyCard.className = "bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 transition-colors duration-300";
+                        const histTitle = historyCard.querySelector('h3');
+                        if (histTitle) histTitle.className = "text-lg font-bold text-zinc-900";
+                    }
+                }
+            }
+        }
+
+        function setTheme(theme) {
+            applyTheme(theme);
+        }
+
+        function updateSidebarButtons() {
+            const isDark = currentTheme === 'black';
+            const tabs = ['canteen', 'history', 'profile'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('tab-' + t);
+                if (btn) {
+                    if (activeTab === t) {
+                        btn.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider bg-amber-500 text-zinc-950 font-extrabold shadow-lg shadow-amber-500/15 cursor-pointer";
+                    } else {
+                        if (isDark) {
+                            btn.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition cursor-pointer";
+                        } else {
+                            btn.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition cursor-pointer";
+                        }
+                    }
+                }
+            });
+
+            const btnChangePass = document.getElementById('tab-changepassword');
+            if (btnChangePass) {
+                if (isDark) {
+                    btnChangePass.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition cursor-pointer";
+                } else {
+                    btnChangePass.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition cursor-pointer";
+                }
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            const savedSession = localStorage.getItem('canteen_student_session');
+            if (savedSession) {
+                try {
+                    const student = JSON.parse(savedSession);
+                    setupDashboard(student);
+                } catch(e) {
+                    localStorage.removeItem('canteen_student_session');
+                }
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
+
+            setInterval(tickMealTimers, 1000);
+            updateMealContainers();
+
+            // Load and apply theme
+            const savedTheme = localStorage.getItem('rkmvc_theme') || 'white';
+            applyTheme(savedTheme);
+        });
+
+        function updateMealContainers() {
+            const lunchInactive = document.getElementById('lunch-inactive-container');
+            const lunchActive = document.getElementById('lunch-active-container');
+            const lunchTimer = document.getElementById('lunch-timer');
+
+            const breakfastInactive = document.getElementById('breakfast-inactive-container');
+            const breakfastActive = document.getElementById('breakfast-active-container');
+            const breakfastTimer = document.getElementById('breakfast-timer');
+
+            if (lunchActive && lunchInactive && lunchTimer) {
+                if (isLunchActivated) {
+                    lunchInactive.classList.add('hidden');
+                    lunchActive.classList.remove('hidden');
+                    lunchActive.classList.add('flex');
+                    lunchTimer.textContent = Math.ceil(lunchTimeLeft / 60) + "m left";
+                } else {
+                    lunchInactive.classList.remove('hidden');
+                    lunchActive.classList.add('hidden');
+                    lunchActive.classList.remove('flex');
+                }
+            }
+
+            if (breakfastActive && breakfastInactive && breakfastTimer) {
+                if (isBreakfastActivated) {
+                    breakfastInactive.classList.add('hidden');
+                    breakfastActive.classList.remove('hidden');
+                    breakfastActive.classList.add('flex');
+                    breakfastTimer.textContent = Math.ceil(breakfastTimeLeft / 60) + "m left";
+                } else {
+                    breakfastInactive.classList.remove('hidden');
+                    breakfastActive.classList.add('hidden');
+                    breakfastActive.classList.remove('flex');
+                }
+            }
+        }
+
+        function tickMealTimers() {
+            if (isLunchActivated && lunchTimeLeft > 0) {
+                lunchTimeLeft--;
+                localStorage.setItem('rkmvc_lunch_time_left', lunchTimeLeft);
+                if (lunchTimeLeft <= 0) {
+                    isLunchActivated = false;
+                    localStorage.removeItem('rkmvc_lunch_activated');
+                    localStorage.removeItem('rkmvc_lunch_time_left');
+                }
+            }
+            if (isBreakfastActivated && breakfastTimeLeft > 0) {
+                breakfastTimeLeft--;
+                localStorage.setItem('rkmvc_breakfast_time_left', breakfastTimeLeft);
+                if (breakfastTimeLeft <= 0) {
+                    isBreakfastActivated = false;
+                    localStorage.removeItem('rkmvc_breakfast_activated');
+                    localStorage.removeItem('rkmvc_breakfast_time_left');
+                }
+            }
+            updateMealContainers();
+        }
+
+        function updateClock() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString();
+            const clockEl = document.getElementById('navClock');
+            if (clockEl) clockEl.textContent = timeStr;
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const usernameInput = document.getElementById('username').value.trim();
+            const passwordInput = document.getElementById('password').value;
+            const errorDiv = document.getElementById('loginError');
+            const errorText = document.getElementById('loginErrorText');
+
+            errorDiv.classList.add('hidden');
+
+            if (!usernameInput || !passwordInput) {
+                errorText.textContent = "Please fill in all fields.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            let studentsList = STUDENTS;
+            const savedList = localStorage.getItem('rkmvc_students_list');
+            if (savedList) {
+                try {
+                    studentsList = JSON.parse(savedList);
+                } catch(err) {}
+            }
+
+            const student = studentsList.find(s => s.id.toUpperCase() === usernameInput.toUpperCase() && s.password === passwordInput);
+            
+            if (student) {
+                localStorage.setItem('canteen_student_session', JSON.stringify(student));
+                setupDashboard(student);
+            } else {
+                errorText.textContent = "Invalid credentials. Try 243301034021 & pass123";
+                errorDiv.classList.remove('hidden');
+            }
+        }
+
+        function updatePasswordRules(val) {
+            const hasUpperCase = /[A-Z]/.test(val);
+            const hasLowerCase = /[a-z]/.test(val);
+            const hasDigit = /\d/.test(val);
+            const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(val);
+            const hasMinLength = val.length >= 8;
+
+            document.getElementById('rule-upper').textContent = hasUpperCase ? '✅' : '❌';
+            document.getElementById('rule-lower').textContent = hasLowerCase ? '✅' : '❌';
+            document.getElementById('rule-digit').textContent = hasDigit ? '✅' : '❌';
+            document.getElementById('rule-special').textContent = hasSpecialChar ? '✅' : '❌';
+            document.getElementById('rule-length').textContent = hasMinLength ? '✅' : '❌';
+        }
+
+        function openChangePasswordModal() {
+            document.getElementById('currentPasswordInput').value = '';
+            document.getElementById('newPasswordInput').value = '';
+            document.getElementById('confirmPasswordInput').value = '';
+            document.getElementById('passwordError').classList.add('hidden');
+            document.getElementById('passwordSuccess').classList.add('hidden');
+            updatePasswordRules('');
+            document.getElementById('passwordModal').classList.remove('hidden');
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons();
+            }
+        }
+
+        function closePasswordModal() {
+            document.getElementById('passwordModal').classList.add('hidden');
+        }
+
+        function handleChangePassword(e) {
+            e.preventDefault();
+            const currentPass = document.getElementById('currentPasswordInput').value;
+            const newPass = document.getElementById('newPasswordInput').value;
+            const confirmPass = document.getElementById('confirmPasswordInput').value;
+            const errorDiv = document.getElementById('passwordError');
+            const errorText = document.getElementById('passwordErrorText');
+            const successDiv = document.getElementById('passwordSuccess');
+
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+
+            if (!currentPass || !newPass || !confirmPass) {
+                errorText.textContent = "Please fill in all fields.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            if (currentPass !== currentStudent.password) {
+                errorText.textContent = "Current password is incorrect.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            if (newPass !== confirmPass) {
+                errorText.textContent = "New passwords do not match.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            const hasUpperCase = /[A-Z]/.test(newPass);
+            const hasLowerCase = /[a-z]/.test(newPass);
+            const hasDigit = /\d/.test(newPass);
+            const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(newPass);
+            const hasMinLength = newPass.length >= 8;
+
+            if (!hasUpperCase || !hasLowerCase || !hasDigit || !hasSpecialChar || !hasMinLength) {
+                errorText.textContent = "Please meet all password strength requirements.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            // Load students from storage or default
+            let studentsList = STUDENTS;
+            const savedList = localStorage.getItem('rkmvc_students_list');
+            if (savedList) {
+                try {
+                    studentsList = JSON.parse(savedList);
+                } catch(err) {}
+            }
+
+            // Update password
+            studentsList = studentsList.map(s => {
+                if (s.id === currentStudent.id) {
+                    return { ...s, password: newPass };
+                }
+                return s;
+            });
+
+            localStorage.setItem('rkmvc_students_list', JSON.stringify(studentsList));
+
+            // Update current student
+            currentStudent.password = newPass;
+            localStorage.setItem('canteen_student_session', JSON.stringify(currentStudent));
+
+            successDiv.classList.remove('hidden');
+
+            setTimeout(() => {
+                closePasswordModal();
+            }, 2000);
+        }
+
+        function setupDashboard(student) {
+            currentStudent = student;
+            
+            // Set User Badge in Header
+            document.getElementById('navUserName').textContent = student.name;
+            document.getElementById('navUserId').textContent = student.id;
+            document.getElementById('navUserPhoto').src = student.photo;
+            document.getElementById('navUserBadge').classList.remove('hidden');
+            document.getElementById('navUserBadge').classList.add('flex');
+
+            // Dashboard Welcome Card
+            const welcomeElem = document.getElementById('dashWelcomeName');
+            if (welcomeElem) welcomeElem.textContent = "Welcome Back, " + student.name;
+            const rollElem = document.getElementById('dashRoll');
+            if (rollElem) rollElem.textContent = student.roll;
+            const deptElem = document.getElementById('dashDept');
+            if (deptElem) deptElem.textContent = student.dept;
+            const yearElem = document.getElementById('dashYear');
+            if (yearElem) yearElem.textContent = "Academic Year: " + student.year;
+
+            // Profile Tab Content
+            document.getElementById('profileName').textContent = student.name;
+            document.getElementById('profileRoll').textContent = student.roll + " • " + student.dept;
+            document.getElementById('profileDept').textContent = student.dept;
+            document.getElementById('profileYear').textContent = student.year;
+            document.getElementById('profileEmail').textContent = "nakumergb28gmail@gmail.com";
+            document.getElementById('profilePhoto').src = student.photo;
+            document.getElementById('profileId').textContent = "ID: " + student.id;
+
+            // Load Token History
+            loadTokenHistory();
+
+            // Views shifts
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('portalSection').classList.remove('hidden');
+            document.getElementById('sidebar').classList.remove('hidden');
+            document.getElementById('sidebar').classList.add('flex');
+            document.getElementById('logoutBtn').classList.remove('hidden');
+            
+            switchTab('canteen');
+        }
+
+        function logout() {
+            currentStudent = null;
+            localStorage.removeItem('canteen_student_session');
+            
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('portalSection').classList.add('hidden');
+            document.getElementById('sidebar').classList.add('hidden');
+            document.getElementById('sidebar').classList.remove('flex');
+            document.getElementById('logoutBtn').classList.add('hidden');
+            document.getElementById('navUserBadge').classList.add('hidden');
+            document.getElementById('navUserBadge').classList.remove('flex');
+            closeModal();
+        }
+
+        function switchTab(tabId) {
+            const tabs = ['profile', 'canteen', 'history'];
+            
+            // Remove active classes
+            tabs.forEach(t => {
+                const btn = document.getElementById('tab-' + t);
+                if (btn) {
+                    btn.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70 transition cursor-pointer";
+                }
+                const view = document.getElementById('view-' + t);
+                if (view) view.classList.add('hidden');
+            });
+
+            // Set current active
+            const activeBtn = document.getElementById('tab-' + tabId);
+            if (activeBtn) {
+                activeBtn.className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider bg-amber-500 text-zinc-950 font-extrabold shadow-lg shadow-amber-500/15 cursor-pointer";
+            }
+            const activeView = document.getElementById('view-' + tabId);
+            if (activeView) activeView.classList.remove('hidden');
+            activeTab = tabId;
+
+            // Close mobile menu
+            mobileSidebarOpen = false;
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.add('max-md:hidden');
+
+            updateSidebarButtons();
+        }
+
+        function toggleMobileSidebar() {
+            mobileSidebarOpen = !mobileSidebarOpen;
+            const sidebar = document.getElementById('sidebar');
+            if (mobileSidebarOpen) {
+                sidebar.classList.remove('max-md:hidden');
+                sidebar.classList.add('max-md:flex');
+            } else {
+                sidebar.classList.add('max-md:hidden');
+                sidebar.classList.remove('max-md:flex');
+            }
+        }
+
+        function toggleSyllabus(courseCode) {
+            const syllabus = document.getElementById('syllabus-' + courseCode);
+            const arrow = document.getElementById('arrow-' + courseCode);
+            if (syllabus.classList.contains('hidden')) {
+                syllabus.classList.remove('hidden');
+                arrow.classList.add('rotate-90');
+            } else {
+                syllabus.classList.add('hidden');
+                arrow.classList.remove('rotate-90');
+            }
+        }
+
+        function expandSyllabus(courseCode) {
+            const syllabus = document.getElementById('syllabus-' + courseCode);
+            const arrow = document.getElementById('arrow-' + courseCode);
+            syllabus.classList.remove('hidden');
+            arrow.classList.add('rotate-90');
+        }
+
+        function openPayModal() {
+            document.getElementById('payModal').classList.remove('hidden');
+        }
+
+        function closePayModal() {
+            document.getElementById('payModal').classList.add('hidden');
+        }
+
+        function submitFeePayment() {
+            feeStatus = 'PAID';
+            closePayModal();
+            
+            // Update Dash Fee Cards
+            const feeRow = document.getElementById('dashFeeOutstandingRow');
+            if (feeRow) feeRow.classList.add('hidden');
+            const clearedRow = document.getElementById('dashFeeClearedRow');
+            if (clearedRow) clearedRow.classList.remove('hidden');
+            const feeNotice = document.getElementById('dashFeeNotice');
+            if (feeNotice) {
+                feeNotice.className = "text-xs text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full";
+                feeNotice.textContent = "All Fees Cleared";
+            }
+
+            // Update Fees Tab Panel
+            const statusBadge = document.getElementById('feeStatusBadge');
+            if (statusBadge) {
+                statusBadge.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                statusBadge.textContent = "Cleared & Paid";
+            }
+            const payActions = document.getElementById('paymentActions');
+            if (payActions) payActions.classList.add('hidden');
+            const successMsg = document.getElementById('paymentClearedSuccess');
+            if (successMsg) successMsg.classList.remove('hidden');
+            const pendingBadge = document.getElementById('feePendingBadge');
+            if (pendingBadge) pendingBadge.classList.add('hidden');
+
+            // Add payment receipt to history list
+            const history = document.getElementById('historyReceipts');
+            const today = new Date().toISOString().split('T')[0];
+            const refNo = "TXN" + Math.floor(100000000 + Math.random() * 900000000);
+            
+            const newInvoice = document.createElement('div');
+            newInvoice.className = "border border-zinc-200 bg-zinc-50 p-4 rounded-xl flex items-center justify-between gap-3 text-xs";
+            newInvoice.innerHTML = `
+                <div>
+                    <h5 class="font-bold text-zinc-800">Fifth Semester Course Fee</h5>
+                    <p class="text-[10px] text-zinc-400 mt-0.5">Paid on: ${today} • Ref: ${refNo}</p>
+                </div>
+                <span class="font-mono font-bold text-emerald-600">₹25,000</span>
+            `;
+            history.insertBefore(newInvoice, history.firstChild);
+        }
+
+        function generateToken(meal) {
+            if (!currentStudent) return;
+            currentSelectedMeal = meal;
+            
+            document.getElementById('modalTitle').textContent = meal.toUpperCase() + " TOKEN";
+            document.getElementById('modalStudentName').textContent = currentStudent.name;
+            document.getElementById('modalStudentRoll').textContent = currentStudent.roll;
+            document.getElementById('modalStudentPhoto').src = currentStudent.photo;
+            document.getElementById('modalQrContent').textContent = currentStudent.id;
+
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+
+            new QRCode(qrContainer, {
+                text: currentStudent.id,
+                width: 192,
+                height: 192,
+                colorDark : "#09090b",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            document.getElementById('qrModal').classList.remove('hidden');
+        }
+
+        function simulateStaffScan() {
+            if (!currentSelectedMeal) return;
+
+            const meal = currentSelectedMeal;
+            if (meal === 'Lunch') {
+                isLunchActivated = true;
+                lunchTimeLeft = 2700; // 45 minutes
+                localStorage.setItem('rkmvc_lunch_activated', 'true');
+                localStorage.setItem('rkmvc_lunch_time_left', lunchTimeLeft);
+            } else if (meal === 'Breakfast') {
+                isBreakfastActivated = true;
+                breakfastTimeLeft = 2700; // 45 minutes
+                localStorage.setItem('rkmvc_breakfast_activated', 'true');
+                localStorage.setItem('rkmvc_breakfast_time_left', breakfastTimeLeft);
+            }
+
+            // Record to history ONLY after utilization (scan acceptance)
+            let history = [];
+            const saved = localStorage.getItem('rkmvc_token_history');
+            if (saved) {
+                try {
+                    history = JSON.parse(saved);
+                } catch(e) {}
+            }
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const newToken = {
+                date: dateStr,
+                time: timeStr,
+                meal: meal
+            };
+            history.unshift(newToken);
+            localStorage.setItem('rkmvc_token_history', JSON.stringify(history));
+
+            closeModal();
+            updateMealContainers();
+            loadTokenHistory();
+        }
+
+        function closeModal() {
+            document.getElementById('qrModal').classList.add('hidden');
+            currentSelectedMeal = null;
+        }
+
+        function loadTokenHistory() {
+            const historyList = document.getElementById('tokenHistoryList');
+            if (!historyList) return;
+
+            let history = [];
+            const saved = localStorage.getItem('rkmvc_token_history');
+            if (saved) {
+                try {
+                    history = JSON.parse(saved);
+                } catch(e) {}
+            } else {
+                // Default to empty array per user request!
+                history = [];
+                localStorage.setItem('rkmvc_token_history', JSON.stringify(history));
+            }
+
+            if (history.length === 0) {
+                historyList.innerHTML = `
+                    <div class="text-center py-8 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+                        <p class="text-xs text-zinc-400 font-medium">No recent token utilization history.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            historyList.innerHTML = history.map(item => `
+                <div class="bg-zinc-50 hover:bg-zinc-100/50 border border-zinc-200/60 rounded-2xl p-4 flex items-center justify-between text-xs transition">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                            <i data-lucide="${item.meal === 'Breakfast' ? 'coffee' : 'utensils'}" class="w-4.5 h-4.5"></i>
+                        </div>
+                        <div>
+                            <p class="font-bold text-zinc-800">${item.meal} Token</p>
+                            <p class="text-[10px] text-zinc-400 mt-0.5">${item.date} ${item.time}</p>
+                        </div>
+                    </div>
+                    <span class="text-[10px] bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-2.5 py-1 rounded-full font-bold">
+                        Utilized
+                    </span>
+                </div>
+            `).join('');
+
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        }
+
+        function clearTokenHistory() {
+            localStorage.setItem('rkmvc_token_history', JSON.stringify([]));
+            loadTokenHistory();
+        }
+    </script>
+</body>
+</html>

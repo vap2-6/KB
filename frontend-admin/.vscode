@@ -1,0 +1,7 @@
+{
+    "python.analysis.extraPaths": [
+        "./admin_backend",
+        "./backend_staff",
+        "./registration_backend"
+    ]
+}
