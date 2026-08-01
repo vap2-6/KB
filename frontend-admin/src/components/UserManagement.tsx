@@ -184,6 +184,7 @@ export default function UserManagement({ showToast, currentUser }: UserManagemen
                   value={form.username}
                   onChange={e => setForm({ ...form, username: e.target.value })}
                   className="w-full pl-9 pr-4 text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-saffron-500"
+                  maxLength={50}
                   required
                 />
               </div>
@@ -196,6 +197,7 @@ export default function UserManagement({ showToast, currentUser }: UserManagemen
                 value={form.display_name}
                 onChange={e => setForm({ ...form, display_name: e.target.value })}
                 className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-saffron-500"
+                maxLength={100}
               />
             </div>
             <div>
@@ -208,6 +210,7 @@ export default function UserManagement({ showToast, currentUser }: UserManagemen
                   value={form.email}
                   onChange={e => setForm({ ...form, email: e.target.value })}
                   className="w-full pl-9 pr-4 text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-saffron-500"
+                  maxLength={100}
                   required
                 />
               </div>

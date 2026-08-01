@@ -4,8 +4,6 @@ import {
   Sun,
   Moon,
   Soup,
-  Search,
-  Check,
   Plus,
   TrendingUp,
   Clock,
@@ -13,11 +11,9 @@ import {
   FileCheck,
   UtensilsCrossed,
   ChefHat,
-  Filter,
   Activity,
   CheckCircle,
   Loader,
-  Download,
   Upload
 } from 'lucide-react';
 import api from '../lib/api';
@@ -30,15 +26,10 @@ interface DashboardProps {
 export default function Dashboard({ showToast, onNavigate }: DashboardProps) {
   const [students, setStudents] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
-  const [search, setSearch] = useState('');
-  const [selectedGrade, setSelectedGrade] = useState('All');
-  const [selectedSessionFilter, setSelectedSessionFilter] = useState<'All' | 'Pending_FN' | 'Pending_AN'>('All');
   const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [tokenGenerated, setTokenGenerated] = useState(0);
   const [tokenRedeemed, setTokenRedeemed] = useState(0);
   const [tokensRaw, setTokensRaw] = useState<any[]>([]);
-  const [downloadingCard, setDownloadingCard] = useState<string | null>(null);
 
   // Quick registration states
   const [showQuickRegister, setShowQuickRegister] = useState(false);
@@ -83,51 +74,6 @@ export default function Dashboard({ showToast, onNavigate }: DashboardProps) {
     const interval = setInterval(fetchDashboardData, 30000); // refresh every 30s (Area 5 Item 4)
     return () => clearInterval(interval);
   }, []);
-
-  // Quick Action: toggle FN/AN served state with Optimistic UI rendering (Area 2 Item 3)
-  const handleToggleMeal = async (student: any, session: 'forenoon_meal' | 'afternoon_meal') => {
-    setUpdatingId(`${student.student_id}_${session}`);
-    const isCurrentlyServed = student[session] === true || student[session] === 'true' || student[session] === 1;
-    const newValue = !isCurrentlyServed;
-
-    // Optimistic UI flip
-    setStudents(prev => prev.map(s => s.student_id === student.student_id ? { ...s, [session]: newValue } : s));
-
-    try {
-      // 1. Update the student table directly
-      await api.put(`/records/${student.student_id}`, {
-        targetTableName: 'student_meals',
-        [session]: newValue,
-        last_served_date: new Date().toISOString().split('T')[0]
-      });
-
-      // 2. Insert audit record into meal_distribution_log (non-fatal)
-      const sessionLabel = session === 'forenoon_meal' ? 'Forenoon' : 'Afternoon';
-      if (newValue) {
-        try {
-          const nowStr = new Date().toISOString();
-          await api.post('/tables/meal_distribution_log/records', {
-            log_id: 'LOG_' + Math.random().toString(36).substr(2, 9),
-            student_id: student.student_id,
-            session_type: sessionLabel,
-            status: 'Distributed',
-            served_by: 'admin',
-            served_at: nowStr,
-            timestamp: nowStr
-          });
-        } catch (logErr) {
-          console.warn('Meal distribution log notice:', logErr);
-        }
-      }
-
-      showToast(`${student.name}'s ${sessionLabel} meal status updated!`, 'success');
-      fetchDashboardData();
-    } catch (err: any) {
-      showToast(`Failed to update meal status: ${err?.response?.data?.error || err.message || 'Error'}`, 'error');
-    } finally {
-      setUpdatingId(null);
-    }
-  };
 
   // Quick Action: add student
   const handleQuickRegister = async (e: React.FormEvent) => {
@@ -184,118 +130,24 @@ export default function Dashboard({ showToast, onNavigate }: DashboardProps) {
   const overallTargetCount = totalStudents * 2;
   const complianceRate = overallTargetCount > 0 ? Math.round((overallServedCount / overallTargetCount) * 100) : 0;
 
-  // Grade lists for filters
-  const grades = ['All', ...Array.from(new Set(students.map(s => s.grade_section))).filter(Boolean)];
-
-  // Filtering students
-  const filteredStudents = students.filter(student => {
-    const matchesSearch = student.name?.toLowerCase().includes(search.toLowerCase()) ||
-      student.student_id?.toLowerCase().includes(search.toLowerCase()) ||
-      student.grade_section?.toLowerCase().includes(search.toLowerCase());
-
-    const matchesGrade = selectedGrade === 'All' || student.grade_section === selectedGrade;
-
-    let matchesSession = true;
-    if (selectedSessionFilter === 'Pending_FN') {
-      matchesSession = !student.forenoon_meal;
-    } else if (selectedSessionFilter === 'Pending_AN') {
-      matchesSession = !student.afternoon_meal;
-    }
-
-    return matchesSearch && matchesGrade && matchesSession;
-  });
-
-  // Generic client-side CSV builder + downloader
-  const downloadCSV = (filename: string, rows: any[], columns?: string[]) => {
-    if (!rows || rows.length === 0) {
-      showToast('No records available for this report yet.', 'info');
-      return;
-    }
-    const cols = columns && columns.length > 0 ? columns : Object.keys(rows[0]);
-    const escapeCell = (val: any) => {
-      if (val === null || val === undefined) return '';
-      const str = String(val);
-      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-    };
-    const header = cols.join(',');
-    const body = rows.map(row => cols.map(c => escapeCell(row[c])).join(',')).join('\n');
-    const csvContent = `${header}\n${body}`;
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode?.removeChild(link);
-    window.URL.revokeObjectURL(url);
+  // Status styling for the Live Token Activity Stream
+  const tokenStatusStyles: Record<string, string> = {
+    redeemed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    approved: 'bg-blue-50 text-blue-600 border-blue-200',
+    token_issued: 'bg-amber-50 text-amber-600 border-amber-200',
+    awaiting_scan: 'bg-purple-50 text-purple-600 border-purple-200',
+    staff_verified: 'bg-cyan-50 text-cyan-600 border-cyan-200',
+    expired: 'bg-rose-50 text-rose-600 border-rose-200',
+    rejected: 'bg-red-50 text-red-600 border-red-200',
   };
-
-  // Handles report downloads triggered by clicking a dashboard metric card
-  const handleMetricDownload = async (metric: 'registered' | 'forenoon' | 'afternoon' | 'compliance' | 'tokensGenerated' | 'tokensRedeemed') => {
-    setDownloadingCard(metric);
-    try {
-      const dateStamp = new Date().toISOString().split('T')[0];
-
-      if (metric === 'registered') {
-        downloadCSV(
-          `registered_students_${dateStamp}.csv`,
-          students,
-          ['student_id', 'name', 'grade_section', 'forenoon_meal', 'afternoon_meal', 'last_served_date']
-        );
-        showToast('Registered Students report downloaded!', 'success');
-
-      } else if (metric === 'forenoon') {
-        const rows = students.filter(s => s.forenoon_meal === true || s.forenoon_meal === 'true' || s.forenoon_meal === 1);
-        downloadCSV(
-          `forenoon_served_${dateStamp}.csv`,
-          rows,
-          ['student_id', 'name', 'grade_section', 'last_served_date']
-        );
-        showToast('Forenoon Served report downloaded!', 'success');
-
-      } else if (metric === 'afternoon') {
-        const rows = students.filter(s => s.afternoon_meal === true || s.afternoon_meal === 'true' || s.afternoon_meal === 1);
-        downloadCSV(
-          `afternoon_served_${dateStamp}.csv`,
-          rows,
-          ['student_id', 'name', 'grade_section', 'last_served_date']
-        );
-        showToast('Afternoon Served report downloaded!', 'success');
-
-      } else if (metric === 'compliance') {
-        const rows = students.map(s => {
-          const fn = s.forenoon_meal === true || s.forenoon_meal === 'true' || s.forenoon_meal === 1;
-          const an = s.afternoon_meal === true || s.afternoon_meal === 'true' || s.afternoon_meal === 1;
-          const served = (fn ? 1 : 0) + (an ? 1 : 0);
-          return {
-            student_id: s.student_id,
-            name: s.name,
-            grade_section: s.grade_section,
-            forenoon_meal: fn ? 'Served' : 'Pending',
-            afternoon_meal: an ? 'Served' : 'Pending',
-            compliance_percent: Math.round((served / 2) * 100)
-          };
-        });
-        downloadCSV(`daily_compliance_${dateStamp}.csv`, rows);
-        showToast('Daily Compliance report downloaded!', 'success');
-
-      } else if (metric === 'tokensGenerated') {
-        const rows = tokensRaw.filter((t: any) => t.status && ['approved', 'token_issued', 'redeemed', 'staff_verified'].includes(t.status.toLowerCase()));
-        downloadCSV(`tokens_generated_${dateStamp}.csv`, rows);
-        showToast('Tokens Generated report downloaded!', 'success');
-
-      } else if (metric === 'tokensRedeemed') {
-        const rows = tokensRaw.filter((t: any) => t.status && t.status.toLowerCase() === 'redeemed');
-        downloadCSV(`tokens_redeemed_${dateStamp}.csv`, rows);
-        showToast('Tokens Redeemed report downloaded!', 'success');
-      }
-    } catch (err: any) {
-      showToast('Failed to generate report. Please try again.', 'error');
-    } finally {
-      setDownloadingCard(null);
-    }
+  const tokenStatusLabels: Record<string, string> = {
+    redeemed: 'Redeemed',
+    approved: 'Generated',
+    token_issued: 'Generated',
+    awaiting_scan: 'Pending',
+    staff_verified: 'Verified',
+    expired: 'Expired',
+    rejected: 'Rejected',
   };
 
   return (
@@ -477,295 +329,153 @@ export default function Dashboard({ showToast, onNavigate }: DashboardProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
 
         {/* Card 1: Registered Students */}
-        <button
-          onClick={() => handleMetricDownload('registered')}
-          disabled={downloadingCard !== null}
-          title="Click to download Registered Students report"
-          className="group text-left bg-saffron-50/30 border border-saffron-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-saffron-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-saffron-50/30 border border-saffron-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-saffron-600/80 uppercase tracking-widest block">Registered Students</span>
             <span className="text-2xl font-extrabold text-slate-900 mt-0.5 block">{totalStudents}</span>
-            <span className="text-[9px] font-semibold text-saffron-500 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-saffron-100/70 text-saffron-700 p-2.5 rounded-xl border border-saffron-200/60">
-            {downloadingCard === 'registered' ? (
-              <div className="h-5 w-5 border-2 border-saffron-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Users className="h-5 w-5" />
-            )}
+            <Users className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
         {/* Card 2: Forenoon Served */}
-        <button
-          onClick={() => handleMetricDownload('forenoon')}
-          disabled={downloadingCard !== null}
-          title="Click to download Forenoon Served report"
-          className="group text-left bg-amber-50/30 border border-amber-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-amber-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-amber-50/30 border border-amber-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-amber-600/80 uppercase tracking-widest block">Forenoon Served</span>
             <span className="text-2xl font-extrabold text-saffron-600 mt-0.5 block">
               {fnServed} <span className="text-xs font-semibold text-slate-400">/ {totalStudents}</span>
             </span>
-            <span className="text-[9px] font-semibold text-saffron-500 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-amber-100/70 text-amber-700 p-2.5 rounded-xl border border-amber-200/60">
-            {downloadingCard === 'forenoon' ? (
-              <div className="h-5 w-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Sun className="h-5 w-5" />
-            )}
+            <Sun className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
         {/* Card 3: Afternoon Served */}
-        <button
-          onClick={() => handleMetricDownload('afternoon')}
-          disabled={downloadingCard !== null}
-          title="Click to download Afternoon Served report"
-          className="group text-left bg-amber-50/30 border border-amber-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-amber-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-amber-50/30 border border-amber-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-amber-600/80 uppercase tracking-widest block">Afternoon Served</span>
             <span className="text-2xl font-extrabold text-amber-700 mt-0.5 block">
               {anServed} <span className="text-xs font-semibold text-slate-400">/ {totalStudents}</span>
             </span>
-            <span className="text-[9px] font-semibold text-amber-600 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-amber-100/70 text-amber-800 p-2.5 rounded-xl border border-amber-200/60">
-            {downloadingCard === 'afternoon' ? (
-              <div className="h-5 w-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Soup className="h-5 w-5" />
-            )}
+            <Soup className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
         {/* Card 4: Daily Compliance */}
-        <button
-          onClick={() => handleMetricDownload('compliance')}
-          disabled={downloadingCard !== null}
-          title="Click to download Daily Compliance report"
-          className="group text-left bg-emerald-50/30 border border-emerald-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-emerald-50/30 border border-emerald-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-emerald-600/80 uppercase tracking-widest block">Daily compliance</span>
             <span className="text-2xl font-extrabold text-emerald-600 mt-0.5 block">{complianceRate}%</span>
-            <span className="text-[9px] font-semibold text-emerald-600 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-emerald-100/70 text-emerald-700 p-2.5 rounded-xl border border-emerald-200/60">
-            {downloadingCard === 'compliance' ? (
-              <div className="h-5 w-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <FileCheck className="h-5 w-5" />
-            )}
+            <FileCheck className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
         {/* Card 5: Tokens Generated */}
-        <button
-          onClick={() => handleMetricDownload('tokensGenerated')}
-          disabled={downloadingCard !== null}
-          title="Click to download Tokens Generated report"
-          className="group text-left bg-blue-50/30 border border-blue-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-blue-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-blue-50/30 border border-blue-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-blue-600/80 uppercase tracking-widest block">Tokens Generated</span>
             <span className="text-2xl font-extrabold text-blue-600 mt-0.5 block">{tokenGenerated}</span>
-            <span className="text-[9px] font-semibold text-blue-500 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-blue-100/70 text-blue-700 p-2.5 rounded-xl border border-blue-200/60">
-            {downloadingCard === 'tokensGenerated' ? (
-              <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Loader className="h-5 w-5" />
-            )}
+            <Loader className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
         {/* Card 6: Tokens Redeemed */}
-        <button
-          onClick={() => handleMetricDownload('tokensRedeemed')}
-          disabled={downloadingCard !== null}
-          title="Click to download Tokens Redeemed report"
-          className="group text-left bg-emerald-50/30 border border-emerald-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all disabled:opacity-60 disabled:pointer-events-none"
-        >
+        <div className="text-left bg-emerald-50/30 border border-emerald-200/80 rounded-2xl p-5 shadow-2xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-emerald-600/80 uppercase tracking-widest block">Tokens Redeemed</span>
             <span className="text-2xl font-extrabold text-emerald-600 mt-0.5 block">{tokenRedeemed}</span>
-            <span className="text-[9px] font-semibold text-emerald-600 mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Download className="h-3 w-3" /> Download report
-            </span>
           </div>
           <div className="bg-emerald-100/70 text-emerald-700 p-2.5 rounded-xl border border-emerald-200/60">
-            {downloadingCard === 'tokensRedeemed' ? (
-              <div className="h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <CheckCircle className="h-5 w-5" />
-            )}
+            <CheckCircle className="h-5 w-5" />
           </div>
-        </button>
+        </div>
 
       </div>
 
       {/* Main interactive serving grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Left Interactive Grid - Students serving list */}
+        {/* Left Interactive Grid - Live Token Activity Stream */}
         <div className="lg:col-span-2 bg-white border border-saffron-200/60 rounded-2xl shadow-2xs flex flex-col overflow-hidden">
 
-          <div className="p-6 border-b border-saffron-100/60 space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <ChefHat className="h-5 w-5 text-saffron-500" />
-                Live Student Dining Verification
-              </h3>
+          <div className="p-6 border-b border-saffron-100/60 flex items-center justify-between">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+              <Activity className="h-5 w-5 text-saffron-500" />
+              Live Token Activity Stream
+            </h3>
 
-              {/* Reset/Sync Indicator */}
+            <div className="flex items-center gap-3">
               <span className="text-[10px] font-semibold text-saffron-700 bg-saffron-50 border border-saffron-200/60 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-saffron-500 animate-ping" /> Real-time Sync Active
               </span>
-            </div>
-
-            {/* Filters Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search student ID, name..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-xs border border-saffron-200/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-saffron-500 bg-saffron-50/20"
-                />
-              </div>
-
-              {/* Grade Filter */}
-              <div className="relative flex items-center">
-                <Filter className="absolute left-3 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                <select
-                  value={selectedGrade}
-                  onChange={e => setSelectedGrade(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-xs bg-saffron-50/20 border border-saffron-200/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-saffron-500"
-                >
-                  {grades.map(grade => (
-                    <option key={grade} value={grade}>{grade === 'All' ? 'All Classes' : grade}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Status Session Filter */}
-              <div className="flex border border-saffron-200/60 rounded-xl overflow-hidden p-0.5 bg-saffron-50/20">
-                <button
-                  onClick={() => setSelectedSessionFilter('All')}
-                  className={`flex-1 text-[10px] font-bold py-1 px-1.5 rounded-lg cursor-pointer ${selectedSessionFilter === 'All' ? 'bg-white text-saffron-600 shadow-2xs' : 'text-slate-400'}`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setSelectedSessionFilter('Pending_FN')}
-                  className={`flex-1 text-[10px] font-bold py-1 px-1.5 rounded-lg cursor-pointer ${selectedSessionFilter === 'Pending_FN' ? 'bg-white text-saffron-600 shadow-2xs' : 'text-slate-400'}`}
-                  title="Needs Forenoon meal"
-                >
-                  Pending FN
-                </button>
-                <button
-                  onClick={() => setSelectedSessionFilter('Pending_AN')}
-                  className={`flex-1 text-[10px] font-bold py-1 px-1.5 rounded-lg cursor-pointer ${selectedSessionFilter === 'Pending_AN' ? 'bg-white text-saffron-600 shadow-2xs' : 'text-slate-400'}`}
-                  title="Needs Afternoon meal"
-                >
-                  Pending AN
-                </button>
-              </div>
+              <button
+                onClick={() => onNavigate('token-monitor')}
+                className="text-[10px] font-bold text-saffron-600 hover:text-saffron-700 cursor-pointer"
+              >
+                View full stream →
+              </button>
             </div>
           </div>
 
-          {/* Student Grid / Rows */}
+          {/* Token Stream Rows */}
           <div className="p-6">
-            {filteredStudents.length === 0 ? (
+            {tokensRaw.length === 0 ? (
               <div className="py-12 text-center text-xs text-slate-400">
-                No matching students found on current filters.
+                No token activity recorded yet.
                 <br />
-                Try importing more student lists or clearing filters.
+                Tokens issued and redeemed by staff will appear here live.
               </div>
             ) : (
               <div className="divide-y divide-saffron-100/50 max-h-[480px] overflow-y-auto pr-2">
-                {filteredStudents.map((student) => {
-                  const isFnServed = student.forenoon_meal === true || student.forenoon_meal === 'true' || student.forenoon_meal === 1;
-                  const isAnServed = student.afternoon_meal === true || student.afternoon_meal === 'true' || student.afternoon_meal === 1;
+                {tokensRaw.slice(0, 25).map((t: any, idx: number) => {
+                  const st = (t.status || '').toLowerCase();
+                  const stStyle = tokenStatusStyles[st] || 'bg-gray-50 text-gray-600 border-gray-200';
+                  const stLabel = tokenStatusLabels[st] || t.status || 'Active';
+                  const code = t.token_code || t.token_uid || t.token_id || t.id;
+                  const meal = t.session_type || t.meal_type || 'Standard';
+                  const isForenoon = meal.toLowerCase().includes('break') || meal.toLowerCase().includes('forenoon');
 
                   return (
-                    <div key={student.student_id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 first:pt-0 last:pb-0">
+                    <div key={code || idx} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 first:pt-0 last:pb-0">
 
-                      {/* Student Info */}
+                      {/* Token Info */}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-800 font-mono tracking-tight shrink-0 bg-saffron-50/50 px-1.5 py-0.5 border border-saffron-200/50 rounded">
-                            {student.student_id}
+                            {code}
                           </span>
                           <span className="text-xs font-bold text-slate-900 truncate">
-                            {student.name}
+                            {t.student_name || t.student_id}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 font-medium">
-                          <span className="font-semibold text-slate-700">{student.grade_section}</span>
-                          {student.last_served_date && (
+                          <span className="font-semibold text-slate-700 inline-flex items-center gap-1">
+                            {isForenoon ? <Sun className="h-3 w-3 text-amber-500" /> : <Moon className="h-3 w-3 text-indigo-500" />}
+                            {meal}
+                          </span>
+                          {t.created_at && (
                             <>
                               <span>•</span>
-                              <span>Served: {student.last_served_date}</span>
+                              <span>{new Date(t.created_at).toLocaleString()}</span>
                             </>
                           )}
                         </div>
                       </div>
 
-                      {/* Interactive meal buttons */}
+                      {/* Status badge */}
                       <div className="flex items-center gap-3 shrink-0">
-
-                        {/* Forenoon (FN) Button */}
-                        <div className="flex flex-col items-center gap-1">
-                          <button
-                            onClick={() => handleToggleMeal(student, 'forenoon_meal')}
-                            disabled={updatingId !== null}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-bold cursor-pointer transition-all ${isFnServed
-                              ? 'bg-saffron-500 text-white border-saffron-500 shadow-2xs'
-                              : 'bg-slate-50 text-slate-500 border-saffron-200/60 hover:bg-saffron-50/50'
-                              }`}
-                          >
-                            <Sun className={`h-3.5 w-3.5 ${isFnServed ? 'text-white' : 'text-amber-500'}`} />
-                            <span>Forenoon</span>
-                            {isFnServed && <Check className="h-3 w-3 text-white" />}
-                          </button>
-                        </div>
-
-                        {/* Afternoon (AN) Button */}
-                        <div className="flex flex-col items-center gap-1">
-                          <button
-                            onClick={() => handleToggleMeal(student, 'afternoon_meal')}
-                            disabled={updatingId !== null}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-bold cursor-pointer transition-all ${isAnServed
-                              ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                              : 'bg-slate-50 text-slate-500 border-saffron-200/60 hover:bg-amber-50/50'
-                              }`}
-                          >
-                            <Soup className={`h-3.5 w-3.5 ${isAnServed ? 'text-white' : 'text-amber-600'}`} />
-                            <span>Afternoon</span>
-                            {isAnServed && <Check className="h-3 w-3 text-white" />}
-                          </button>
-                        </div>
-
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${stStyle}`}>
+                          {st === 'redeemed' ? <CheckCircle className="h-3 w-3" /> : null}
+                          {stLabel}
+                        </span>
                       </div>
 
                     </div>

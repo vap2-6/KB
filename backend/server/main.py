@@ -189,8 +189,8 @@ LANDING_HTML = """
         }
         body {
             font-family: 'Outfit', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-            color: #f8fafc;
+            background: linear-gradient(135deg, #fffaf3 0%, #fff1e0 100%);
+            color: #431407;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -210,19 +210,28 @@ LANDING_HTML = """
             animation: fadeInDown 0.8s ease-out;
         }
         .logo-glow {
-            width: 110px;
-            height: 110px;
+            width: 120px;
+            height: 120px;
             margin: 0 auto 1.5rem;
-            background: radial-gradient(circle, rgba(249,115,22,0.2) 0%, rgba(0,0,0,0) 70%);
+            background: radial-gradient(circle, rgba(249,115,22,0.15) 0%, rgba(255,255,255,0) 70%);
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 50%;
         }
+        .logo-glow img {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+            border-radius: 50%;
+            background: #ffffff;
+            padding: 6px;
+            box-shadow: 0 4px 20px rgba(249, 115, 22, 0.25);
+        }
         h1 {
             font-size: 3rem;
             font-weight: 800;
-            background: linear-gradient(to right, #ffedd5, #fdba74, #f97316);
+            background: linear-gradient(to right, #ea580c, #f97316, #fb923c);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             letter-spacing: -0.03em;
@@ -230,7 +239,7 @@ LANDING_HTML = """
         }
         p.subtitle {
             font-size: 1.15rem;
-            color: #94a3b8;
+            color: #7c4a2d;
             max-width: 600px;
             margin: 0 auto;
             line-height: 1.6;
@@ -243,10 +252,10 @@ LANDING_HTML = """
             perspective: 1000px;
         }
         .card {
-            background: rgba(30, 41, 59, 0.45);
+            background: rgba(255, 255, 255, 0.75);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(249, 115, 22, 0.15);
             border-radius: 20px;
             padding: 2.25rem 1.75rem;
             text-decoration: none;
@@ -257,7 +266,7 @@ LANDING_HTML = """
             justify-content: space-between;
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             cursor: pointer;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 4px 30px rgba(249, 115, 22, 0.08);
             position: relative;
             overflow: hidden;
             animation: scaleIn 0.6s ease-out both;
@@ -269,14 +278,14 @@ LANDING_HTML = """
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, rgba(249,115,22,0.1) 0%, rgba(99,102,241,0.05) 100%);
+            background: linear-gradient(135deg, rgba(249,115,22,0.08) 0%, rgba(251,146,60,0.04) 100%);
             opacity: 0;
             transition: opacity 0.3s ease;
         }
         .card:hover {
             transform: translateY(-8px) scale(1.03);
-            border-color: rgba(249, 115, 22, 0.4);
-            box-shadow: 0 10px 40px rgba(249, 115, 22, 0.15);
+            border-color: rgba(249, 115, 22, 0.5);
+            box-shadow: 0 10px 40px rgba(249, 115, 22, 0.2);
         }
         .card:hover::before {
             opacity: 1;
@@ -291,7 +300,7 @@ LANDING_HTML = """
             align-items: center;
             justify-content: center;
             border-radius: 50%;
-            border: 1px solid rgba(249, 115, 22, 0.2);
+            border: 1px solid rgba(249, 115, 22, 0.25);
             transition: all 0.3s ease;
         }
         .card:hover .card-icon {
@@ -302,12 +311,12 @@ LANDING_HTML = """
         h2 {
             font-size: 1.35rem;
             font-weight: 600;
-            color: #f1f5f9;
+            color: #7c2d12;
             margin-bottom: 0.5rem;
         }
         .card-desc {
             font-size: 0.9rem;
-            color: #94a3b8;
+            color: #92602f;
             line-height: 1.5;
             margin-bottom: 1.5rem;
         }
@@ -318,20 +327,20 @@ LANDING_HTML = """
             text-transform: uppercase;
             padding: 0.35rem 0.75rem;
             border-radius: 30px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #cbd5e1;
+            background: rgba(249, 115, 22, 0.08);
+            border: 1px solid rgba(249, 115, 22, 0.2);
+            color: #c2410c;
             transition: all 0.3s ease;
         }
         .card:hover .badge {
             background: rgba(249, 115, 22, 0.2);
-            border-color: rgba(249, 115, 22, 0.3);
-            color: #fed7aa;
+            border-color: rgba(249, 115, 22, 0.4);
+            color: #9a3412;
         }
         footer {
             margin-top: 5rem;
             font-size: 0.85rem;
-            color: #64748b;
+            color: #b45309;
             z-index: 10;
         }
         @keyframes fadeInDown {
@@ -364,7 +373,7 @@ LANDING_HTML = """
     <div class="container">
         <header>
             <div class="logo-glow">
-                <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                <img src="/static/rkm_logo.png" alt="Ramakrishna Mission Logo">
             </div>
             <h1>RKMVC Meal Flow</h1>
             <p class="subtitle">Unified Portal Hub for Ramakrishna Mission Vivekananda College Free Noon Meals Scheme</p>

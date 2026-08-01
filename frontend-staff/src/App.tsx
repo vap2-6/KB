@@ -616,27 +616,38 @@ export default function App() {
       setCooldownActive(false);
     }, cooldownTime * 1000);
 
-    let payload = decodedText.trim();
-    if (payload.startsWith('{') && payload.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(payload);
-        if (parsed.sid) payload = String(parsed.sid).trim();
-        else if (parsed.student_id) payload = String(parsed.student_id).trim();
-        else if (parsed.reg_no) payload = String(parsed.reg_no).trim();
-      } catch (e) {}
+    const rawPayload = decodedText.trim();
+    // Store the human-readable label for toasts (extract student ID if possible)
+    let displayLabel = rawPayload;
+    try {
+      const decoded = atob(rawPayload.replace(/-/g, '+').replace(/_/g, '/'));
+      const payloadPart = decoded.split('.')[0];
+      const parsed = JSON.parse(payloadPart);
+      if (parsed.sid) displayLabel = parsed.sid;
+      else if (parsed.tu) displayLabel = parsed.tu;
+    } catch (_) {
+      // Not base64 — raw ID
+      if (rawPayload.startsWith('{')) {
+        try { const p = JSON.parse(rawPayload); displayLabel = p.sid || p.student_id || rawPayload; } catch (_) {}
+      }
     }
-    setScannedPayload(payload);
+    setScannedPayload(displayLabel);
 
     try {
-      const safePayload = encodeURIComponent(payload);
-      const res = await apiFetch(`/api/tokens/${safePayload}`);
-      if (res.ok) {
-        const tokenData = await res.json();
+      // Primary: POST /api/scan — handles all QR formats on the backend
+      const scanRes = await apiFetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: rawPayload })
+      });
+
+      if (scanRes.ok) {
+        const tokenData = await scanRes.json();
 
         if (tokenData.token) {
           const st = (tokenData.token.status || '').toLowerCase();
           if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            showToast("Meal Already Claimed", `A meal was already distributed with this token for ${tokenData.student?.name || tokenData.token.student_reg}.`, "warning");
+            showToast("Meal Already Claimed", `A meal was already distributed for ${tokenData.student?.name || tokenData.token.student_reg}.`, "warning");
             playBeep("warning");
             return;
           } else if (st === 'rejected' || st === 'expired') {
@@ -650,10 +661,7 @@ export default function App() {
               const approveRes = await apiFetch(`/api/tokens/${tokenData.token.token_id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  status: "approved",
-                  staff_id: session?.staffId
-                })
+                body: JSON.stringify({ status: "approved", staff_id: session?.staffId })
               });
               if (approveRes.ok) {
                 await fetchTokens();
@@ -678,8 +686,26 @@ export default function App() {
         }
       }
 
-      // Fallback: search student endpoint directly
-      const studentRes = await apiFetch(`/api/students/${safePayload}`);
+      // Fallback: try legacy GET /api/tokens/<id> with raw payload
+      const safePayload = encodeURIComponent(rawPayload);
+      const tokenRes = await apiFetch(`/api/tokens/${safePayload}`);
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        if (tokenData.token || tokenData.student) {
+          if (tokenData.token) {
+            setCurrentTokenData(tokenData);
+            setIsVerifyModalOpen(true);
+          } else {
+            setCurrentStudent(tokenData.student);
+            setIsIssueModalOpen(true);
+          }
+          playBeep("success");
+          return;
+        }
+      }
+
+      // Fallback 2: GET /api/students/<id>
+      const studentRes = await apiFetch(`/api/students/${encodeURIComponent(displayLabel)}`);
       if (studentRes.ok) {
         const studentData = await studentRes.json();
         setCurrentStudent(studentData);
@@ -688,11 +714,11 @@ export default function App() {
         return;
       }
 
-      showToast("No Record Found", `No student or meal token matching ID '${payload}' was found in database.`, "error");
+      showToast("No Record Found", `No student or token matching '${displayLabel}' was found.`, "error");
       playBeep("error");
     } catch (err) {
       console.error("Scan verification error:", err);
-      showToast("Verification Error", `Database verification failed for payload '${payload}'.`, "error");
+      showToast("Scan Error", `Could not reach the server. Check your connection and try again.`, "error");
       playBeep("error");
     }
   };
