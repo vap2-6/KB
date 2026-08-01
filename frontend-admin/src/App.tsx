@@ -13,7 +13,9 @@ import MealWindows from './components/MealWindows';
 import TokenMonitor from './components/TokenMonitor';
 import AuthModule from './components/AuthModule';
 import UserManagement from './components/UserManagement';
+import DiningVerification from './components/DiningVerification';
 import Toast, { ToastType } from './components/Toast';
+import MealReportScheduler from './components/MealReportScheduler';
 import api from './lib/api';
 
 export default function App() {
@@ -172,6 +174,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 transition-colors duration-300">
+      {/* Auto PDF report scheduler — invisible, runs in background */}
+      <MealReportScheduler showToast={showToast} />
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -203,6 +207,7 @@ export default function App() {
               {currentTab === 'dashboard' && <Dashboard showToast={showToast} onNavigate={setCurrentTab} />}
               {currentTab === 'requests' && <RequestsModule showToast={showToast} onPendingCountChange={setPendingRequestsCount} />}
               {currentTab === 'database' && <DatabaseModule user={user} showToast={showToast} />}
+              {currentTab === 'dining-verification' && <DiningVerification showToast={showToast} />}
               {currentTab === 'import' && <DataTools showToast={showToast} onNavigate={setCurrentTab} />}
               {currentTab === 'export' && <ExportModule showToast={showToast} />}
               {currentTab === 'logs' && <LogsModule showToast={showToast} />}

@@ -16,7 +16,8 @@ import {
   Send,
   Settings,
   ChevronDown,
-  Users2
+  Users2,
+  ChefHat
 } from 'lucide-react';
 // @ts-ignore
 import rkmLogo from '../assets/images/rkm_logo.png';
@@ -41,6 +42,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
   ];
 
   const settingsItems = [
+    { id: 'dining-verification', label: 'Dining Verification', icon: ChefHat },
     { id: 'database', label: 'Students & Rosters', icon: Database },
     { id: 'import', label: 'Data Tools', icon: FileUp },
     { id: 'export', label: 'Export Meal Logs', icon: FileDown },

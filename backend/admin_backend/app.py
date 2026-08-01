@@ -200,7 +200,7 @@ def _ensure_tables(conn):
                 role ENUM('admin','approval_staff','canteen_staff') NOT NULL DEFAULT 'approval_staff',
                 display_name VARCHAR(100) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS student_meals (
@@ -215,7 +215,7 @@ def _ensure_tables(conn):
                 image_url VARCHAR(512) NULL, image_path VARCHAR(512) NULL,
                 student_image_path VARCHAR(512) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
 
         # Migrations for existing databases
@@ -270,7 +270,7 @@ def _ensure_tables(conn):
                 INDEX idx_reg_status (status),
                 INDEX idx_reg_dept (dept_number),
                 INDEX idx_reg_mobile (mobile_no)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         _ensure_meal_registrations_columns(cur)
 
@@ -281,7 +281,7 @@ def _ensure_tables(conn):
                 day_of_week TINYINT NULL, start_time TIME NOT NULL, end_time TIME NOT NULL,
                 grace_minutes INT DEFAULT 15, is_active TINYINT(1) DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS meal_tokens (
@@ -299,7 +299,7 @@ def _ensure_tables(conn):
                 INDEX idx_token_uid (token_uid), INDEX idx_student (student_id),
                 INDEX idx_status (status),
                 FOREIGN KEY (student_id) REFERENCES student_meals(student_id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         try:
             cur.execute("""
@@ -320,7 +320,7 @@ def _ensure_tables(conn):
                     'duplicate_meal','not_eligible','generation_disabled','invalid_signature','not_found') NOT NULL,
                 detail TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_scanner (scanner_id), INDEX idx_created (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS import_logs (
@@ -328,21 +328,21 @@ def _ensure_tables(conn):
                 records_imported INT DEFAULT 0,
                 status ENUM('SUCCESS','FAILED','PARTIAL') DEFAULT 'SUCCESS',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS export_logs (
                 id VARCHAR(50) PRIMARY KEY, filename VARCHAR(255) NOT NULL,
                 records_exported INT DEFAULT 0, format ENUM('csv','excel','json') DEFAULT 'csv',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id VARCHAR(50) PRIMARY KEY, username VARCHAR(50) NOT NULL,
                 action VARCHAR(50) NOT NULL, table_name VARCHAR(50) NOT NULL,
                 details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS meal_distribution_log (
@@ -355,19 +355,19 @@ def _ensure_tables(conn):
                 timestamp DATETIME NULL,
                 UNIQUE KEY uk_token_id (token_id),
                 CONSTRAINT fk_dist_meal_tokens FOREIGN KEY (token_id) REFERENCES meal_tokens(token_uid) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS app_state (
                 id INT PRIMARY KEY, data JSON NOT NULL,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS system_roles (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 role_name VARCHAR(50) UNIQUE NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("SELECT COUNT(*) as c FROM system_roles")
         if cur.fetchone()['c'] == 0:
@@ -376,6 +376,14 @@ def _ensure_tables(conn):
         cur.execute("SELECT COUNT(*) as c FROM users WHERE role = 'admin'")
         if cur.fetchone()['c'] == 0:
             _seed_data(conn)
+        # Always guarantee the default admin account exists with the known password
+        import bcrypt as _bcrypt
+        _default_pw_hash = _bcrypt.hashpw(b'Admin@RKMVC2025', _bcrypt.gensalt()).decode()
+        cur.execute("""
+            INSERT INTO users (id, username, email, password_hash, role, display_name)
+            VALUES ('usr_admin_default', 'rkmvc_admin', 'admin@rkmvc.edu', %s, 'admin', 'RKMVC Administrator')
+            ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash)
+        """, (_default_pw_hash,))
         _sync_approved_registrations_to_student_meals(conn)
         
         # Safe Index Bootstrapping (GAP 2)
@@ -778,7 +786,6 @@ def generate_token(user):
     payload = {
         "id": user["id"], "username": user["username"],
         "role": user["role"], "display_name": user.get("display_name"),
-        "student_id": user.get("student_id"),
         "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
@@ -953,8 +960,7 @@ def auth_login():
         return jsonify({
             "token": token,
             "user": {"id": user["id"], "username": user["username"], "email": user["email"],
-                     "role": user["role"], "display_name": user.get("display_name"),
-                     "student_id": user.get("student_id")}
+                     "role": user["role"], "display_name": user.get("display_name")}
         })
     except Exception as e:
         return jsonify({"error": sani(e)}), 500
@@ -1008,16 +1014,25 @@ def auth_me():
 @require_role('admin')
 def auth_register():
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         username, email, password = data.get('username'), data.get('email'), data.get('password')
         if not username or not email or not password:
             return jsonify({"error": "Username, email, and password required"}), 400
         role = data.get('role', 'approval_staff')
+        display_name = data.get('display_name', username)
         # Admins may only provision Staff or Admin accounts here.
         # Student accounts are created exclusively via the registration flow.
         allowed_roles = ('admin', 'approval_staff', 'canteen_staff')
         if role not in allowed_roles:
             return jsonify({"error": f"Admins can only create Staff or Admin accounts. Allowed roles: {', '.join(allowed_roles)}"}), 403
+        # Validate field lengths up front so we return a clear 400 instead of
+        # letting MySQL reject an oversized value and surfacing a generic 500.
+        field_limits = {"username": 50, "email": 100, "display_name": 100}
+        for field_name, value in (("username", username), ("email", email), ("display_name", display_name)):
+            if value and len(value) > field_limits[field_name]:
+                return jsonify({
+                    "error": f"{field_name.replace('_', ' ').title()} must be {field_limits[field_name]} characters or fewer (got {len(value)})."
+                }), 400
         conn = get_db()
         try:
             with conn.cursor() as cur:
@@ -1026,9 +1041,9 @@ def auth_register():
                     return jsonify({"error": "Username or email already taken"}), 400
                 uid = "usr_" + uuid.uuid4().hex[:9]
                 pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode()
-                display_name = data.get('display_name', username)
-                cur.execute("INSERT INTO users (id,username,email,password_hash,role,display_name,student_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                            (uid, username, email, pw_hash, role, display_name, None))
+                cur.execute("INSERT INTO users (id,username,email,password_hash,role,display_name) VALUES (%s,%s,%s,%s,%s,%s)",
+                            (uid, username, email, pw_hash, role, display_name))
+                conn.commit()
         finally:
             conn.close()
         _log_audit(_get_auditor_username(), 'REGISTER', 'users', f"Created user {username} with role {role}")
@@ -1052,6 +1067,7 @@ def auth_list_users():
                 users = cur.fetchall()
         finally:
             conn.close()
+        return jsonify({"users": _sanitize_for_json(users)})
     except Exception as e:
         return jsonify({"error": sani(e)}), 500
 
@@ -2091,10 +2107,12 @@ def get_table_records(tableName):
                     "tableName": matched_tbl,
                     "columns": columns_meta,
                     "rows": paginated,
-                    "total": total,
-                    "page": page,
-                    "limit": limit,
-                    "totalPages": total_pages
+                    "pagination": {
+                        "page": page,
+                        "limit": limit,
+                        "totalPages": total_pages,
+                        "totalRecords": total
+                    }
                 }))
     except Exception as err:
         logger.warning("Direct physical MySQL query fallback for %s: %s", tableName, err)
@@ -2630,14 +2648,16 @@ def export_csv():
         selected_columns = data.get('columns')
         conn = get_db()
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT data FROM app_state WHERE id = 1")
-                row = cur.fetchone()
+            db = _get_physical_mysql_tables(conn)
+            if db is None:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM app_state WHERE id = 1")
+                    row = cur.fetchone()
+                db = json.loads(row['data']) if row else None
         finally:
             conn.close()
-        if not row:
+        if not db:
             return jsonify({"error": "No data"}), 404
-        db = json.loads(row['data'])
         table = db.get('tables', {}).get(table_name)
         if not table:
             return jsonify({"error": "Table not found"}), 404
@@ -2675,14 +2695,16 @@ def export_excel():
         selected_columns = data.get('columns')
         conn = get_db()
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT data FROM app_state WHERE id = 1")
-                row = cur.fetchone()
+            db = _get_physical_mysql_tables(conn)
+            if db is None:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM app_state WHERE id = 1")
+                    row = cur.fetchone()
+                db = json.loads(row['data']) if row else None
         finally:
             conn.close()
-        if not row:
+        if not db:
             return jsonify({"error": "No data"}), 404
-        db = json.loads(row['data'])
         table = db.get('tables', {}).get(table_name)
         if not table:
             return jsonify({"error": "Table not found"}), 404
@@ -2724,14 +2746,16 @@ def export_json():
         selected_columns = data.get('columns')
         conn = get_db()
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT data FROM app_state WHERE id = 1")
-                row = cur.fetchone()
+            db = _get_physical_mysql_tables(conn)
+            if db is None:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM app_state WHERE id = 1")
+                    row = cur.fetchone()
+                db = json.loads(row['data']) if row else None
         finally:
             conn.close()
-        if not row:
+        if not db:
             return jsonify({"error": "No data"}), 404
-        db = json.loads(row['data'])
         table = db.get('tables', {}).get(table_name)
         if not table:
             return jsonify({"error": "Table not found"}), 404
@@ -3026,6 +3050,209 @@ def comm_send_broadcast():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": sani(e)}), 500
+
+# --- MEAL REPORT GENERATION ---
+
+@admin_bp.route('/meal-report/generate', methods=['POST'])
+@admin_bp.route('/api/meal-report/generate', methods=['POST'])
+@authenticate
+@require_role('admin')
+def generate_meal_report():
+    """Generate a PDF meal report for a given date and meal type (forenoon/afternoon).
+    Called automatically by the frontend at the end of each meal window."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        import io
+
+        data = request.json or {}
+        meal_type = data.get('meal_type', '').lower()   # 'forenoon' or 'afternoon'
+        report_date = data.get('date') or datetime.date.today().isoformat()
+
+        if meal_type not in ('forenoon', 'afternoon'):
+            return jsonify({"error": "meal_type must be 'forenoon' or 'afternoon'"}), 400
+
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                # Fetch all tokens for this meal type and date
+                cur.execute("""
+                    SELECT
+                        t.token_uid, t.meal_type, t.status,
+                        t.created_at, t.redeemed_at, t.redeemed_by,
+                        s.name AS student_name, s.grade_section,
+                        COALESCE(s.register_number, s.student_id) AS reg_no
+                    FROM meal_tokens t
+                    JOIN student_meals s ON t.student_id = s.student_id
+                    WHERE t.meal_type = %s AND DATE(t.created_at) = %s
+                    ORDER BY t.status DESC, t.created_at ASC
+                """, (meal_type, report_date))
+                rows = cur.fetchall()
+
+                # Summary counts
+                total = len(rows)
+                redeemed = sum(1 for r in rows if r['status'] == 'redeemed')
+                not_redeemed = sum(1 for r in rows if r['status'] != 'redeemed')
+                expired = sum(1 for r in rows if r['status'] == 'expired')
+                rejected = sum(1 for r in rows if r['status'] == 'rejected')
+        finally:
+            conn.close()
+
+        # Build PDF in memory
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4,
+                                leftMargin=15*mm, rightMargin=15*mm,
+                                topMargin=18*mm, bottomMargin=18*mm)
+
+        styles = getSampleStyleSheet()
+        SAFFRON = colors.Color(1.0, 0.6, 0.2)
+        SLATE900 = colors.Color(0.059, 0.090, 0.165)
+        SLATE500 = colors.Color(0.392, 0.455, 0.545)
+        SLATE100 = colors.Color(0.945, 0.957, 0.976)
+
+        title_style = ParagraphStyle('Title', fontSize=15, fontName='Helvetica-Bold',
+                                     textColor=SLATE900, spaceAfter=2)
+        sub_style = ParagraphStyle('Sub', fontSize=8.5, fontName='Helvetica',
+                                   textColor=SLATE500, spaceAfter=4)
+        label_style = ParagraphStyle('Label', fontSize=7, fontName='Helvetica-Bold',
+                                     textColor=SLATE500, spaceAfter=1)
+        stat_style = ParagraphStyle('Stat', fontSize=18, fontName='Helvetica-Bold',
+                                    textColor=SAFFRON)
+
+        meal_label = 'Morning (Forenoon)' if meal_type == 'forenoon' else 'Afternoon'
+        generated_at = datetime.datetime.now().strftime('%d %b %Y %I:%M %p')
+        report_date_fmt = datetime.datetime.strptime(report_date, '%Y-%m-%d').strftime('%d %B %Y')
+
+        story = []
+
+        # Header bar (via a 1-row table for coloured stripe effect)
+        header_data = [[Paragraph(
+            f'<b>RKMVC MEALFLOW</b> &nbsp;|&nbsp; {meal_label} Meal Report &nbsp;|&nbsp; {report_date_fmt}',
+            ParagraphStyle('H', fontSize=9, fontName='Helvetica-Bold', textColor=colors.white)
+        )]]
+        header_tbl = Table(header_data, colWidths=[180*mm])
+        header_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), SLATE900),
+            ('TOPPADDING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        story.append(header_tbl)
+        story.append(Spacer(1, 6*mm))
+
+        story.append(Paragraph(f'{meal_label} Meal Distribution Report', title_style))
+        story.append(Paragraph(f'Generated automatically at {generated_at} &nbsp;·&nbsp; Date: {report_date_fmt}', sub_style))
+        story.append(HRFlowable(width='100%', thickness=1.5, color=SAFFRON, spaceAfter=5*mm))
+
+        # Summary stats row
+        stat_cells = [
+            [Paragraph('TOTAL TOKENS', label_style), Paragraph('REDEEMED', label_style),
+             Paragraph('NOT REDEEMED', label_style), Paragraph('EXPIRED', label_style), Paragraph('REJECTED', label_style)],
+            [Paragraph(str(total), stat_style), Paragraph(str(redeemed), ParagraphStyle('S2', fontSize=18, fontName='Helvetica-Bold', textColor=colors.Color(0.133,0.545,0.133))),
+             Paragraph(str(not_redeemed), ParagraphStyle('S3', fontSize=18, fontName='Helvetica-Bold', textColor=colors.Color(0.8,0.4,0.1))),
+             Paragraph(str(expired), ParagraphStyle('S4', fontSize=18, fontName='Helvetica-Bold', textColor=SLATE500)),
+             Paragraph(str(rejected), ParagraphStyle('S5', fontSize=18, fontName='Helvetica-Bold', textColor=colors.Color(0.8,0.1,0.1)))]
+        ]
+        col_w = 180*mm / 5
+        stat_tbl = Table(stat_cells, colWidths=[col_w]*5)
+        stat_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), SLATE100),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('ROUNDEDCORNERS', [4]),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.Color(0.878, 0.902, 0.933)),
+        ]))
+        story.append(stat_tbl)
+        story.append(Spacer(1, 6*mm))
+
+        # Detail table
+        col_headers = ['#', 'Reg. No.', 'Student Name', 'Section', 'Status', 'Redeemed At', 'Served By']
+        col_widths = [8*mm, 30*mm, 45*mm, 32*mm, 22*mm, 28*mm, 22*mm]
+        table_data = [col_headers]
+
+        STATUS_COLORS = {
+            'redeemed': colors.Color(0.133, 0.545, 0.133),
+            'expired': SLATE500,
+            'rejected': colors.Color(0.8, 0.1, 0.1),
+            'token_issued': colors.Color(0.1, 0.4, 0.8),
+            'approved': colors.Color(0.1, 0.6, 0.5),
+        }
+
+        style_map = {}
+        for i, row in enumerate(rows):
+            redeemed_at = ''
+            if row.get('redeemed_at'):
+                try:
+                    redeemed_at = str(row['redeemed_at'])
+                    if 'T' in redeemed_at or ' ' in redeemed_at:
+                        dt = datetime.datetime.fromisoformat(str(row['redeemed_at']))
+                        redeemed_at = dt.strftime('%I:%M %p')
+                except Exception:
+                    redeemed_at = str(row['redeemed_at'])
+            table_data.append([
+                str(i + 1),
+                row.get('reg_no') or '',
+                row.get('student_name') or '',
+                row.get('grade_section') or '',
+                (row.get('status') or '').replace('_', ' ').title(),
+                redeemed_at,
+                row.get('redeemed_by') or '',
+            ])
+            status_key = (row.get('status') or '').lower()
+            style_map[i + 1] = STATUS_COLORS.get(status_key, SLATE500)
+
+        detail_tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
+        tbl_style = [
+            # Header row
+            ('BACKGROUND', (0, 0), (-1, 0), SLATE900),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 7.5),
+            ('TOPPADDING', (0, 0), (-1, 0), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 7),
+            # Data rows
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('TOPPADDING', (0, 1), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, SLATE100]),
+            ('GRID', (0, 0), (-1, -1), 0.3, colors.Color(0.878, 0.902, 0.933)),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ]
+        # Color-code status column
+        for row_idx, col in style_map.items():
+            tbl_style.append(('TEXTCOLOR', (4, row_idx), (4, row_idx), col))
+            tbl_style.append(('FONTNAME', (4, row_idx), (4, row_idx), 'Helvetica-Bold'))
+
+        detail_tbl.setStyle(TableStyle(tbl_style))
+        story.append(detail_tbl)
+
+        story.append(Spacer(1, 8*mm))
+        story.append(HRFlowable(width='100%', thickness=0.5, color=SLATE100))
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(
+            f'End of {meal_label} session report &nbsp;·&nbsp; RKMVC MealFlow Dining System &nbsp;·&nbsp; {generated_at}',
+            ParagraphStyle('Footer', fontSize=7, fontName='Helvetica', textColor=SLATE500, alignment=TA_CENTER)
+        ))
+
+        doc.build(story)
+        buf.seek(0)
+
+        filename = f"meal_report_{meal_type}_{report_date}.pdf"
+        _log_audit(_get_auditor_username(), 'GENERATE_MEAL_REPORT', 'meal_tokens',
+                   f"Auto-generated {meal_label} report for {report_date}: {redeemed}/{total} redeemed")
+
+        return send_file(buf, mimetype='application/pdf',
+                         as_attachment=True, download_name=filename)
+
+    except Exception as e:
+        return jsonify({"error": sani(e)}), 500
+
 
 # --- HEALTH CHECK (no auth) ---
 

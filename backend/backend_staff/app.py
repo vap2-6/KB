@@ -1,4 +1,8 @@
 import os
+import hmac as _hmac
+import hashlib
+import base64
+import json
 from flask import Flask, request, jsonify, Blueprint
 import mysql.connector
 from datetime import datetime
@@ -7,6 +11,37 @@ from flask_cors import CORS
 # app = Flask(__name__)
 # CORS(app) # Enable CORS so the React frontend can communicate with this backend
 staff_bp = Blueprint('staff_bp', __name__)
+
+# ── QR HMAC config (must match admin_backend) ────────────────────────────────
+QR_HMAC_SECRET = os.environ.get('QR_HMAC_SECRET', 'change-this-to-another-random-64-char-string')
+
+def _hmac_sign(data: str) -> str:
+    return _hmac.new(QR_HMAC_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()[:16]
+
+def _hmac_verify(data: str, signature: str) -> bool:
+    return _hmac.compare_digest(_hmac_sign(data), signature)
+
+def _decode_qr_payload(raw: str):
+    """Try to decode a base64+HMAC signed QR payload.
+    Returns (qr_data_dict, error_str).  On success error_str is None."""
+    raw = raw.strip()
+    # Strategy 1: base64-encoded signed payload  (student QR and token QR)
+    try:
+        decoded = base64.urlsafe_b64decode(raw.encode()).decode()
+        payload_part, sig = decoded.rsplit('.', 1)
+        if not _hmac_verify(payload_part, sig):
+            return None, 'QR signature invalid'
+        return json.loads(payload_part), None
+    except Exception:
+        pass
+    # Strategy 2: plain JSON   {"sid": "..."}
+    if raw.startswith('{'):
+        try:
+            return json.loads(raw), None
+        except Exception:
+            pass
+    # Strategy 3: plain student-id or token-uid string
+    return {'_raw': raw}, None
 
 # Configure your MySQL connection (reads from environment variables with local fallback)
 # Updated to default to the user-specified database 'rkmvc_mealflow_db'
@@ -211,31 +246,55 @@ def verify_token(token_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Search token by token_uid OR student_id
-        cursor.execute("""
-            SELECT * FROM meal_tokens 
-            WHERE token_uid = %s OR student_id = %s 
-            ORDER BY created_at DESC LIMIT 1
-        """, (token_id, token_id))
-        db_token = cursor.fetchone()
-        
+
+        # First try to decode as a signed QR payload
+        qr_data, qr_err = _decode_qr_payload(token_id)
+
+        # Extract meaningful IDs from the decoded payload
+        decoded_student_id = None
+        decoded_token_uid = None
+        if qr_data:
+            decoded_token_uid = qr_data.get('tu')          # token QR
+            decoded_student_id = qr_data.get('sid')        # student or token QR
+            if not decoded_student_id and not decoded_token_uid:
+                decoded_student_id = qr_data.get('_raw')   # plain ID fallback
+
+        # Build search list: [decoded_token_uid, decoded_student_id, raw token_id]
+        search_ids = list(dict.fromkeys(filter(None, [
+            decoded_token_uid, decoded_student_id, token_id
+        ])))
+
+        db_token = None
         db_student = None
+
+        for sid in search_ids:
+            cursor.execute("""
+                SELECT * FROM meal_tokens
+                WHERE token_uid = %s OR student_id = %s
+                ORDER BY created_at DESC LIMIT 1
+            """, (sid, sid))
+            db_token = cursor.fetchone()
+            if db_token:
+                break
+
         if db_token:
             student_id = db_token['student_id']
             cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (student_id,))
             db_student = cursor.fetchone()
         else:
-            # Fallback: search student_meals directly by token_id (which could be student_id)
-            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (token_id,))
-            db_student = cursor.fetchone()
-            
+            # Fallback: search student_meals
+            for sid in search_ids:
+                cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
+                db_student = cursor.fetchone()
+                if db_student:
+                    break
+
         cursor.close()
         conn.close()
-        
+
         if not db_token and not db_student:
             return jsonify({'error': 'Token or Student not found in database'}), 404
-            
+
         return jsonify({
             'token': map_db_token_to_frontend(db_token) if db_token else None,
             'student': map_db_student_to_frontend(db_student) if db_student else None
@@ -251,14 +310,17 @@ def get_student(reg_no):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (reg_no,))
+        cursor.execute(
+            "SELECT * FROM student_meals WHERE student_id = %s OR register_number = %s LIMIT 1",
+            (reg_no, reg_no)
+        )
         db_student = cursor.fetchone()
         cursor.close()
         conn.close()
-        
+
         if not db_student:
             return jsonify({'error': 'Student not found'}), 404
-            
+
         return jsonify(map_db_student_to_frontend(db_student))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -388,10 +450,10 @@ def update_token(token_id):
     data = request.json or {}
     status_fe = data.get('status')
     staff_id = data.get('staff_id') or 'SYSTEM'
-    
+
     if not status_fe:
         return jsonify({'error': 'Missing status field'}), 400
-        
+
     status_fe_lower = str(status_fe).lower().strip()
     if status_fe_lower == 'approved':
         status_db = 'approved'
@@ -399,13 +461,25 @@ def update_token(token_id):
         status_db = 'redeemed'
     else:
         status_db = 'rejected'
-    
+
+    # Decode QR payload if needed
+    qr_data, _ = _decode_qr_payload(token_id)
+    decoded_token_uid = qr_data.get('tu') if qr_data else None
+    decoded_student_id = qr_data.get('sid') if qr_data else None
+    raw_id = qr_data.get('_raw') if qr_data else token_id
+    search_ids = list(dict.fromkeys(filter(None, [decoded_token_uid, decoded_student_id, raw_id, token_id])))
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s OR student_id = %s ORDER BY created_at DESC LIMIT 1", (token_id, token_id))
-        token = cursor.fetchone()
+
+        token = None
+        for sid in search_ids:
+            cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s OR student_id = %s ORDER BY created_at DESC LIMIT 1", (sid, sid))
+            token = cursor.fetchone()
+            if token:
+                break
+
         if not token:
             cursor.close()
             conn.close()
@@ -415,27 +489,98 @@ def update_token(token_id):
             cursor.close()
             conn.close()
             return jsonify({'error': f"Token has already been {token.get('status')}"}), 409
-            
+
         cursor.execute("""
-            UPDATE meal_tokens 
-            SET status = %s, approved_by = %s, redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = CURRENT_TIMESTAMP 
+            UPDATE meal_tokens
+            SET status = %s, approved_by = %s, redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = CURRENT_TIMESTAMP
             WHERE token_uid = %s
         """, (status_db, staff_id, staff_id, token['token_uid']))
-        
+
         # Add to scan audit log
         result_audit = 'success' if status_db == 'approved' else 'invalid_token'
         cursor.execute("""
             INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
             VALUES (%s, 'canteen_staff', 'token_qr', %s, %s, %s, %s, %s)
-        """, (staff_id, token_id, token['student_id'], token_id, result_audit, f'Token status updated to {status_db}'))
-        
+        """, (staff_id, token_id, token['student_id'], token['token_uid'], result_audit, f'Token status updated to {status_db}'))
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return jsonify({'message': 'Token updated successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@staff_bp.route('/scan', methods=['POST'])
+@staff_bp.route('/api/scan', methods=['POST'])
+def scan_qr():
+    """Universal QR/manual scan handler for the staff portal.
+
+    Accepts: { "payload": "<raw QR string or student ID>" }
+
+    Decodes the payload (handles base64+HMAC student QR, base64+HMAC token QR,
+    plain JSON, or plain ID strings), then returns the student and any existing
+    active/pending token — or 404 if nothing is found.
+    """
+    try:
+        data = request.json or {}
+        raw_payload = (data.get('payload') or data.get('scanned_payload') or '').strip()
+        if not raw_payload:
+            return jsonify({'error': 'No payload provided'}), 400
+
+        qr_data, qr_err = _decode_qr_payload(raw_payload)
+
+        if qr_err:
+            return jsonify({'error': f'Invalid QR code: {qr_err}'}), 400
+
+        decoded_token_uid = qr_data.get('tu') if qr_data else None
+        decoded_student_id = qr_data.get('sid') if qr_data else None
+        raw_id = qr_data.get('_raw') if qr_data else raw_payload
+
+        search_ids = list(dict.fromkeys(filter(None, [
+            decoded_token_uid, decoded_student_id, raw_id
+        ])))
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        db_token = None
+        db_student = None
+
+        for sid in search_ids:
+            cursor.execute("""
+                SELECT * FROM meal_tokens
+                WHERE token_uid = %s OR student_id = %s
+                ORDER BY created_at DESC LIMIT 1
+            """, (sid, sid))
+            db_token = cursor.fetchone()
+            if db_token:
+                break
+
+        if db_token:
+            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (db_token['student_id'],))
+            db_student = cursor.fetchone()
+        else:
+            for sid in search_ids:
+                cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
+                db_student = cursor.fetchone()
+                if db_student:
+                    break
+
+        cursor.close()
+        conn.close()
+
+        if not db_token and not db_student:
+            return jsonify({'error': f'No student or token found for scanned code'}), 404
+
+        return jsonify({
+            'token': map_db_token_to_frontend(db_token) if db_token else None,
+            'student': map_db_student_to_frontend(db_student) if db_student else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     pass
