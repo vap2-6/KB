@@ -117,15 +117,56 @@ export default function App() {
 
   // Server-driven token state (replaces localStorage timers)
   interface ActiveTokenState {
-    status: 'none' | 'active' | 'expired' | 'redeemed';
+    status: 'none' | 'not_eligible' | 'closed' | 'pending_approval' | 'open' | 'active' | 'claimed' | 'redeemed' | 'expired';
     qrCodeUrl: string | null;
     expiresAtMs: number; // absolute timestamp in ms for countdown
     tokenId: string | null;
   }
-  const [breakfastToken, setBreakfastToken] = useState<ActiveTokenState>({ status: 'none', qrCodeUrl: null, expiresAtMs: 0, tokenId: null });
-  const [lunchToken, setLunchToken] = useState<ActiveTokenState>({ status: 'none', qrCodeUrl: null, expiresAtMs: 0, tokenId: null });
+  const [breakfastToken, setBreakfastToken] = useState<ActiveTokenState>({ status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null });
+  const [lunchToken, setLunchToken] = useState<ActiveTokenState>({ status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null });
   const [breakfastTimeLeft, setBreakfastTimeLeft] = useState(0);
   const [lunchTimeLeft, setLunchTimeLeft] = useState(0);
+
+  const [mealWindowConfig, setMealWindowConfig] = useState<{
+    bfStart?: string;
+    bfEnd?: string;
+    lunchStart?: string;
+    lunchEnd?: string;
+    bfRawStart?: string;
+    bfRawEnd?: string;
+    bfExpiry?: number;
+    lunchRawStart?: string;
+    lunchRawEnd?: string;
+    lunchExpiry?: number;
+  }>({});
+
+  const format12Hour = (time24?: string) => {
+    if (!time24) return undefined;
+    const [hStr, mStr] = time24.split(':');
+    let h = parseInt(hStr, 10);
+    const m = mStr || '00';
+    if (isNaN(h)) return time24;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    const hDisplay = h < 10 ? `0${h}` : `${h}`;
+    return `${hDisplay}:${m} ${ampm}`;
+  };
+
+  const isTimeInWindow = (start24?: string, end24?: string, expiryMins: number = 15) => {
+    if (!start24 || !end24) return false;
+    const now = new Date();
+    const [sH, sM] = start24.split(':').map(Number);
+    const [eH, eM] = end24.split(':').map(Number);
+    
+    const startTime = new Date(now);
+    startTime.setHours(sH, sM, 0, 0);
+    
+    const endTime = new Date(now);
+    endTime.setHours(eH, eM + expiryMins, 0, 0);
+    
+    return now >= startTime && now <= endTime;
+  };
 
   const [isBreakfastActivated, setIsBreakfastActivated] = useState(false);
   const [isLunchActivated, setIsLunchActivated] = useState(false);
@@ -159,14 +200,80 @@ export default function App() {
     localStorage.setItem('rkmvc_theme', theme);
   }, [theme]);
 
+  // Fetch Admin Configured Meal Window Timings on mount
+  useEffect(() => {
+    const fetchMealConfig = async () => {
+      try {
+        const cfgRes = await fetch('/api/public/meal-config');
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          const fn = cfg.forenoon || {};
+          const an = cfg.afternoon || {};
+          const bfStart = fn.start || '07:30';
+          const bfEnd = fn.end || '10:00';
+          const lunchStart = an.start || '12:00';
+          const lunchEnd = an.end || '14:30';
+          setMealWindowConfig({
+            bfStart: format12Hour(bfStart),
+            bfEnd: format12Hour(bfEnd),
+            lunchStart: format12Hour(lunchStart),
+            lunchEnd: format12Hour(lunchEnd),
+            bfRawStart: bfStart,
+            bfRawEnd: bfEnd,
+            bfExpiry: fn.expiry ?? 15,
+            lunchRawStart: lunchStart,
+            lunchRawEnd: lunchEnd,
+            lunchExpiry: an.expiry ?? 15,
+          });
+        }
+      } catch (e) { }
+    };
+    fetchMealConfig();
+  }, []);
+
   // === SERVER POLLING: Fetch active tokens every 8 seconds ===
   useEffect(() => {
     if (!loggedInStudent) return;
 
-    const TOKEN_DURATION_MS = 30 * 60 * 1000; // 30 minutes
-
     const pollTokens = async () => {
       try {
+        // Fetch Admin Configured Meal Window Timings & Expiry
+        let activeBfStart = '07:30';
+        let activeBfEnd = '10:00';
+        let activeBfExpiry = 15;
+        let activeLunchStart = '12:00';
+        let activeLunchEnd = '14:30';
+        let activeLunchExpiry = 15;
+
+        try {
+          const cfgRes = await fetch('/api/public/meal-config');
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            const fn = cfg.forenoon || {};
+            const an = cfg.afternoon || {};
+            if (fn.start) activeBfStart = fn.start;
+            if (fn.end) activeBfEnd = fn.end;
+            if (fn.expiry !== undefined) activeBfExpiry = fn.expiry;
+
+            if (an.start) activeLunchStart = an.start;
+            if (an.end) activeLunchEnd = an.end;
+            if (an.expiry !== undefined) activeLunchExpiry = an.expiry;
+
+            setMealWindowConfig({
+              bfStart: format12Hour(activeBfStart),
+              bfEnd: format12Hour(activeBfEnd),
+              lunchStart: format12Hour(activeLunchStart),
+              lunchEnd: format12Hour(activeLunchEnd),
+              bfRawStart: activeBfStart,
+              bfRawEnd: activeBfEnd,
+              bfExpiry: activeBfExpiry,
+              lunchRawStart: activeLunchStart,
+              lunchRawEnd: activeLunchEnd,
+              lunchExpiry: activeLunchExpiry,
+            });
+          }
+        } catch (e) { }
+
         let res = await fetch(`/api/staff/tokens?student_reg=${encodeURIComponent(loggedInStudent.id)}`);
         let allTokens: any[] = [];
         if (res.ok) {
@@ -189,10 +296,10 @@ export default function App() {
           const st = (t.status || '').toLowerCase();
 
           let statusText = 'Pending Approval';
-          if (st === 'active' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'awaiting_scan') {
-            statusText = 'Active / Issued';
+          if (st === 'active' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'awaiting_scan' || st === 'open') {
+            statusText = 'Open / Issued';
           } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            statusText = 'Staff Verified & Redeemed';
+            statusText = 'Claimed';
           } else if (st === 'expired') {
             statusText = 'Expired';
           } else if (st === 'rejected') {
@@ -211,30 +318,55 @@ export default function App() {
 
         setTokenHistory(historyItems);
 
-        // Find today's tokens for this student
-        const todayStr = new Date().toISOString().split('T')[0];
+        // Find today's tokens for this student using local date YYYY-MM-DD
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-        let foundBreakfast: ActiveTokenState = { status: 'none', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
-        let foundLunch: ActiveTokenState = { status: 'none', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+        // Check Student Eligibility
+        const isBfEligible = loggedInStudent.forenoon_meal !== false && (loggedInStudent as any).forenoon_meal !== 0;
+        const isLunchEligible = loggedInStudent.afternoon_meal !== false && (loggedInStudent as any).afternoon_meal !== 0;
+
+        // Check Window Active Time (Admin Config Window Check)
+        const isBfWindowActive = isTimeInWindow(activeBfStart, activeBfEnd, activeBfExpiry);
+        const isLunchWindowActive = isTimeInWindow(activeLunchStart, activeLunchEnd, activeLunchExpiry);
+
+        let foundBreakfast: ActiveTokenState = { 
+          status: !isBfEligible ? 'not_eligible' : (isBfWindowActive ? 'pending_approval' : 'closed'), 
+          qrCodeUrl: null, expiresAtMs: 0, tokenId: null 
+        };
+        let foundLunch: ActiveTokenState = { 
+          status: !isLunchEligible ? 'not_eligible' : (isLunchWindowActive ? 'pending_approval' : 'closed'), 
+          qrCodeUrl: null, expiresAtMs: 0, tokenId: null 
+        };
 
         for (const t of allTokens) {
           const mealName = (t.meal_type || '').toLowerCase().includes('breakfast') || (t.meal_type || '').toLowerCase().includes('forenoon') ? 'Breakfast' : 'Lunch';
-          const tokenDate = (t.created_at || '').split('T')[0];
-          if (tokenDate !== todayStr) continue;
+          const rawDateStr = t.created_at || t.generated_at || '';
+          const tokenDate = rawDateStr.split('T')[0].split(' ')[0];
+          if (tokenDate && tokenDate !== todayStr) continue;
 
           const st = (t.status || '').toLowerCase();
           const generatedAt = t.generated_at || t.created_at || t.issued_at;
           const serverNowMs = t.server_current_time ? new Date(t.server_current_time).getTime() : Date.now();
-          const serverTimeOffset = Date.now() - serverNowMs; // GAP 5: device clock immunity
-          const expiresAtMs = generatedAt ? new Date(generatedAt).getTime() + TOKEN_DURATION_MS + serverTimeOffset : 0;
+          const serverTimeOffset = Date.now() - serverNowMs;
+
+          // Calculate Expiry Time from DB expiry_time OR configured Expiry Minutes after window end / generation
+          let expiresAtMs = 0;
+          if (t.expiry_time || t.expires_at) {
+            expiresAtMs = new Date(t.expiry_time || t.expires_at).getTime() + serverTimeOffset;
+          } else if (generatedAt) {
+            const expMins = mealName === 'Breakfast' ? activeBfExpiry : activeLunchExpiry;
+            expiresAtMs = new Date(generatedAt).getTime() + (expMins * 60 * 1000) + serverTimeOffset;
+          }
+
           const tokenId = t.token_id || t.token_uid || null;
 
-          let tokenStatus: 'none' | 'active' | 'expired' | 'redeemed' = 'none';
+          let tokenStatus: ActiveTokenState['status'] = 'none';
           let qrUrl: string | null = null;
 
-          if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified') {
+          if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
             if (expiresAtMs > Date.now()) {
-              tokenStatus = 'active';
+              tokenStatus = 'open';
               // Generate QR from token_id
               if (tokenId) {
                 try {
@@ -245,7 +377,7 @@ export default function App() {
               tokenStatus = 'expired';
             }
           } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            tokenStatus = 'redeemed';
+            tokenStatus = 'claimed';
           } else if (st === 'expired') {
             tokenStatus = 'expired';
           }
@@ -253,8 +385,14 @@ export default function App() {
           const state: ActiveTokenState = { status: tokenStatus, qrCodeUrl: qrUrl, expiresAtMs, tokenId };
 
           if (mealName === 'Breakfast') {
+            if (!isBfWindowActive && isBfEligible) {
+              state.status = 'closed';
+            }
             foundBreakfast = state;
           } else {
+            if (!isLunchWindowActive && isLunchEligible) {
+              state.status = 'closed';
+            }
             foundLunch = state;
           }
         }
@@ -263,10 +401,10 @@ export default function App() {
         setLunchToken(foundLunch);
 
         // Update approval status for backward compat
-        if (foundBreakfast.status === 'active' || foundLunch.status === 'active') {
+        if (foundBreakfast.status === 'open' || foundLunch.status === 'open' || foundBreakfast.status === 'active' || foundLunch.status === 'active') {
           setStaffApprovalStatus('approved');
         }
-        if (foundBreakfast.status === 'redeemed' || foundLunch.status === 'redeemed') {
+        if (foundBreakfast.status === 'claimed' || foundLunch.status === 'claimed' || foundBreakfast.status === 'redeemed' || foundLunch.status === 'redeemed') {
           setIsTokenUtilized(true);
         }
       } catch (err) {
@@ -298,33 +436,31 @@ export default function App() {
               dept: (data.dept && data.dept !== 'N/A') ? data.dept : (prev.dept !== 'Student' && prev.dept !== 'N/A' ? prev.dept : 'N/A'),
               forenoon_meal: data.forenoon_meal !== undefined ? data.forenoon_meal : prev.forenoon_meal,
               afternoon_meal: data.afternoon_meal !== undefined ? data.afternoon_meal : prev.afternoon_meal,
-              photo: data.image_url || prev.photo
             };
-            localStorage.setItem('canteen_student_session', JSON.stringify(updated));
             return updated;
           });
         }
       } catch (err) {
-        console.warn('Profile refresh notice:', err);
+        console.warn('Profile sync error:', err);
       }
     };
     fetchFreshProfile();
   }, [loggedInStudent?.id]);
 
-  // === 1-SECOND COUNTDOWN TICKER ===
+  // === 1-SECOND COUNTDOWN TICKER USING EXPIRY TIME ===
   useEffect(() => {
     const ticker = setInterval(() => {
       if (breakfastToken.expiresAtMs > 0) {
         const remaining = Math.max(0, Math.floor((breakfastToken.expiresAtMs - Date.now()) / 1000));
         setBreakfastTimeLeft(remaining);
-        if (remaining <= 0 && breakfastToken.status === 'active') {
+        if (remaining <= 0 && (breakfastToken.status === 'open' || breakfastToken.status === 'active')) {
           setBreakfastToken(prev => ({ ...prev, status: 'expired', qrCodeUrl: null }));
         }
       }
       if (lunchToken.expiresAtMs > 0) {
         const remaining = Math.max(0, Math.floor((lunchToken.expiresAtMs - Date.now()) / 1000));
         setLunchTimeLeft(remaining);
-        if (remaining <= 0 && lunchToken.status === 'active') {
+        if (remaining <= 0 && (lunchToken.status === 'open' || lunchToken.status === 'active')) {
           setLunchToken(prev => ({ ...prev, status: 'expired', qrCodeUrl: null }));
         }
       }
@@ -1541,6 +1677,8 @@ export default function App() {
                       timeLeftSeconds={breakfastTimeLeft}
                       qrCodeUrl={breakfastToken.qrCodeUrl}
                       theme={theme}
+                      windowStart={mealWindowConfig.bfStart}
+                      windowEnd={mealWindowConfig.bfEnd}
                       onOpenQr={() => setSelectedMeal('Breakfast')}
                     />
 
@@ -1551,6 +1689,8 @@ export default function App() {
                       timeLeftSeconds={lunchTimeLeft}
                       qrCodeUrl={lunchToken.qrCodeUrl}
                       theme={theme}
+                      windowStart={mealWindowConfig.lunchStart}
+                      windowEnd={mealWindowConfig.lunchEnd}
                       onOpenQr={() => setSelectedMeal('Lunch')}
                     />
 

@@ -18,6 +18,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:5050',
         changeOrigin: true,
       },
+      '/uploads': {
+        target: 'http://127.0.0.1:5050',
+        changeOrigin: true,
+      },
+      '/generated_pdfs': {
+        target: 'http://127.0.0.1:5050',
+        changeOrigin: true,
+      },
     },
   },
 });

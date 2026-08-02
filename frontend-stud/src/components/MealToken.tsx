@@ -1,7 +1,7 @@
 import React from 'react';
 import { Coffee, Utensils, QrCode, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
-export type TokenStatus = 'none' | 'active' | 'expired' | 'redeemed';
+export type TokenStatus = 'none' | 'not_eligible' | 'closed' | 'pending_approval' | 'open' | 'active' | 'claimed' | 'redeemed' | 'expired';
 
 interface MealTokenProps {
   mealType: 'Breakfast' | 'Lunch';
@@ -9,10 +9,12 @@ interface MealTokenProps {
   timeLeftSeconds: number;
   qrCodeUrl: string | null;
   theme: 'white' | 'black';
+  windowStart?: string;
+  windowEnd?: string;
   onOpenQr?: () => void;
 }
 
-export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl, theme, onOpenQr }: MealTokenProps) {
+export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl, theme, windowStart, windowEnd, onOpenQr }: MealTokenProps) {
   const isDark = theme === 'black';
 
   const formatTimeLeft = (seconds: number) => {
@@ -22,8 +24,11 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
     return `${m}m ${s < 10 ? '0' : ''}${s}s left`;
   };
 
-  const startTime = mealType === 'Breakfast' ? '08:00 AM' : '12:00 PM';
-  const endTime = mealType === 'Breakfast' ? '09:00 AM' : '01:00 PM';
+  const defaultStart = mealType === 'Breakfast' ? '07:30 AM' : '12:00 PM';
+  const defaultEnd = mealType === 'Breakfast' ? '10:00 AM' : '02:30 PM';
+
+  const startTime = windowStart || defaultStart;
+  const endTime = windowEnd || defaultEnd;
 
   const fallbackBgClass = mealType === 'Breakfast'
     ? (isDark ? 'bg-gradient-to-br from-zinc-900 to-amber-950/40' : 'bg-gradient-to-br from-white to-amber-50/50')
@@ -31,9 +36,24 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
 
   const borderClass = isDark ? 'border-zinc-800' : 'border-zinc-200/80';
 
-  // Status-dependent rendering
+  // Status-dependent rendering for 5 exact states: Not Eligible, Pending Approval, Closed, Open, Claimed
   const renderStatusBadge = () => {
     switch (status) {
+      case 'not_eligible':
+        return (
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-zinc-400 transition-all">
+            <span className="w-2 h-2 rounded-full bg-zinc-300"></span>
+            <span>Not Eligible</span>
+          </div>
+        );
+      case 'closed':
+        return (
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-amber-700/80 transition-all">
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Closed</span>
+          </div>
+        );
+      case 'open':
       case 'active':
         return (
           <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-emerald-600 transition-all">
@@ -41,7 +61,15 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span>Active — {formatTimeLeft(timeLeftSeconds)}</span>
+            <span>Open — {formatTimeLeft(timeLeftSeconds)}</span>
+          </div>
+        );
+      case 'claimed':
+      case 'redeemed':
+        return (
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-blue-600 transition-all">
+            <CheckCircle className="w-3.5 h-3.5" />
+            <span>Claimed ✓</span>
           </div>
         );
       case 'expired':
@@ -51,13 +79,7 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
             <span>Expired</span>
           </div>
         );
-      case 'redeemed':
-        return (
-          <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-blue-600 transition-all">
-            <CheckCircle className="w-3.5 h-3.5" />
-            <span>Claimed ✓</span>
-          </div>
-        );
+      case 'pending_approval':
       default:
         return (
           <p className={`text-[11px] font-semibold mt-1.5 flex items-center gap-1.5 transition-colors duration-300 ${
@@ -71,7 +93,7 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
   };
 
   const renderActionArea = () => {
-    if (status === 'active' && qrCodeUrl) {
+    if ((status === 'open' || status === 'active') && qrCodeUrl) {
       return (
         <div className="mt-5 pt-4 border-t border-dashed border-zinc-200/50">
           <button 
@@ -93,10 +115,16 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
     let buttonLabel = 'Pending Approval';
     let buttonIcon = <Clock className="w-4 h-4" />;
     
-    if (status === 'expired') {
+    if (status === 'not_eligible') {
+      buttonLabel = 'Not Eligible for Meal';
+      buttonIcon = <XCircle className="w-4 h-4" />;
+    } else if (status === 'closed') {
+      buttonLabel = 'Meal Window Closed';
+      buttonIcon = <Clock className="w-4 h-4" />;
+    } else if (status === 'expired') {
       buttonLabel = 'Token Expired';
       buttonIcon = <XCircle className="w-4 h-4" />;
-    } else if (status === 'redeemed') {
+    } else if (status === 'claimed' || status === 'redeemed') {
       buttonLabel = 'Meal Claimed ✓';
       buttonIcon = <CheckCircle className="w-4 h-4" />;
     }

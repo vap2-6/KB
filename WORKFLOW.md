@@ -12,12 +12,12 @@
 
 ### File Storage Infrastructure
 The application root requires a persistent directory named `uploads/` broken down into strict asset subdirectories. Media must be safely stored on the server file-system while only their relative paths are committed to the MySQL database fields:
-- `uploads/student_images/` -> Stores student identification photographs (Target Database Column: `student_image_path`).
+- `uploads/student_master_img/` -> Stores student master identification photographs (Target Database Column: `student_image_path`).
 - `uploads/income_proofs/` -> Stores income certificate documents/PDFs (Target Database Column: `income_proof_path`).
 - `uploads/signatures/` -> Stores student digital verification signatures (Target Database Column: `signature_path`).
 
 ### Frontend Registration User Experience
-1. **Application Intake**: The Student Portal homepage provides a "Sign Up" trigger routing users to a detailed structural entry form. This form incorporates multi-part file input fields enforcing standard payload validation rules (JPEG/PNG images for student photos and signatures; PDFs/Images for income proof verification sheets).
+1. **Application Intake**: The Student Portal homepage provides a "Sign Up" trigger routing users to a detailed structural entry form. This form automatically fetches and displays the student's passport photo from `student_master_img` upon Department Roll Number verification.
 2. **Double-Pass Confirmation (Review Stage)**: Clicking the "Review" button stops form processing, freezes input fields, generates temporary browser object blob URLs (`URL.createObjectURL`) to show previews of the uploaded files, and displays a serialized data preview back to the student for visual layout verification.
 3. **Submission State**: Confirming the preview transmits a multipart form-data (`multipart/form-data`) payload to the backend API admin register endpoint. On `status 200 OK`, the modal unmounts, presenting a clear persistent validation alert: *"Your application has been successfully submitted and sent to the Administrator for verification."*
 
@@ -25,7 +25,7 @@ The application root requires a persistent directory named `uploads/` broken dow
 - Parse incoming binary files using an isolated disk storage buffer pipeline (e.g., Multer for Node, Werkzeug Secure Filename for Python).
 - Rename each file utilizing a distinct tracking pattern (e.g., `student_id_timestamp.ext`) to mitigate server namespace overwrites.
 - Move the processed binary fragments into their respective subdirectories inside `uploads/`.
-- Insert a tracking record into the `meal_registrations` table with an initial tracking state of `status = 'Pending'`, populating the string path columns (`student_image_path`, `income_proof_path`, `signature_path`) with clean relative path strings (e.g., `/uploads/student_images/243301034021.jpg`).
+- Insert a tracking record into the `meal_registrations` table with an initial tracking state of `status = 'Pending'`, populating the string path columns (`student_image_path`, `income_proof_path`, `signature_path`) with clean relative path strings (e.g., `/uploads/student_master_img/243301034021.jpg`).
 
 ---
 
@@ -143,11 +143,12 @@ Everyday token generation report should be generated as pdf file and stored in a
 
 ## 6. Student Registration Form Specifications
 
-### Date of Birth (DOB) & Automatic Age Engine
-- **Automatic Slash Formatting**: The Date of Birth input field accepts raw numeric input and automatically formats slashes `/` as the applicant types (e.g. typing `15082005` converts to `15/08/2005`).
-- **Dynamic Age Calculation**: The form automatically computes the applicant's exact age in years from their entered Date of Birth, displaying a real-time Age badge (`Age: 20 Yrs`).
-- **MySQL Table Column Mapping (`meal_registrations`)**: The `meal_registrations` table schema explicitly maintains an `age INT` column placed next to `date_of_birth VARCHAR(50)`, populated automatically on form submission.
 
 ### Department Number Validation Constraint
 - **Exact 13-Digit Requirement**: The Department Number field strictly enforces an exact 13-digit numeric requirement (`/^\d{13}$/`).
+- **Auto fetching using Department Number** : When the applicant enters the 13 digit department number, the form automatically fetches the student details from the database and fills the form. **If the student is already registered, the form should display a message "Already registered with this Department Number" and disable the form.**  
 - **Input Guarding & Form Validation**: Non-numeric characters are automatically stripped on input, and form submission validation prevents progress unless the Department Number contains exactly 13 digits.
+
+### Date of Birth (DOB) & Automatic Age Engine
+- **Dynamic Age Calculation**: The form automatically computes the applicant's exact age in years from their entered Date of Birth, displaying a real-time Age badge (`Age: 20 Yrs`).
+- **MySQL Table Column Mapping (`meal_registrations`)**: The `meal_registrations` table schema explicitly maintains an `age INT` column placed next to `date_of_birth VARCHAR(50)`, populated automatically on form submission.

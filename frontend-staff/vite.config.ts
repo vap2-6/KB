@@ -20,6 +20,14 @@ export default defineConfig(() => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, '/api/staff/api'),
         },
+        '/uploads': {
+          target: 'http://127.0.0.1:5050',
+          changeOrigin: true,
+        },
+        '/generated_pdfs': {
+          target: 'http://127.0.0.1:5050',
+          changeOrigin: true,
+        },
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

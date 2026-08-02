@@ -6,9 +6,15 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 
 interface MealConfig {
   days: number[];
-  forenoon: { start: string; end: string; grace: number };
-  afternoon: { start: string; end: string; grace: number };
+  forenoon: { start: string; end: string; expiry: number };
+  afternoon: { start: string; end: string; expiry: number };
 }
+
+const DEFAULT_MEAL_CONFIG: MealConfig = {
+  days: [0, 1, 2, 3, 4, 5, 6],
+  forenoon: { start: '07:30', end: '10:00', expiry: 15 },
+  afternoon: { start: '12:00', end: '14:30', expiry: 15 }
+};
 
 interface MealWindowsProps {
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
@@ -24,19 +30,15 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
       try {
         // Use /meal-config which is backed by app_state + meal_windows table
         const res = await api.get('/meal-config');
-        const data = res.data;
+        const data = res.data || {};
         setConfig({
-          days: data.days ?? [0, 1, 2, 3, 4, 5, 6],
-          forenoon: data.forenoon || { start: '07:30', end: '10:00', grace: 15 },
-          afternoon: data.afternoon || { start: '12:00', end: '14:30', grace: 15 }
+          days: data.days ?? DEFAULT_MEAL_CONFIG.days,
+          forenoon: { ...DEFAULT_MEAL_CONFIG.forenoon, ...data.forenoon },
+          afternoon: { ...DEFAULT_MEAL_CONFIG.afternoon, ...data.afternoon }
         });
       } catch {
-        // Fallback default configuration
-        setConfig({
-          days: [0, 1, 2, 3, 4, 5, 6],
-          forenoon: { start: '07:30', end: '10:00', grace: 15 },
-          afternoon: { start: '12:00', end: '14:30', grace: 15 }
-        });
+        // Fallback to default configuration if API request fails
+        setConfig(DEFAULT_MEAL_CONFIG);
       } finally {
         setLoading(false);
       }
@@ -61,8 +63,8 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
     try {
       // PUT /meal-config syncs both app_state and the meal_windows table
       await api.put('/meal-config', {
-        forenoon: config.forenoon,
-        afternoon: config.afternoon,
+        forenoon: { start: config.forenoon.start, end: config.forenoon.end, expiry: config.forenoon.expiry },
+        afternoon: { start: config.afternoon.start, end: config.afternoon.end, expiry: config.afternoon.expiry },
         days: config.days
       });
       showToast('Meal schedule saved successfully', 'success');
@@ -134,13 +136,13 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
               </h3>
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Start Time</label>
-                <input type="time" value={config?.forenoon.start || '07:00'}
+                <input type="time" value={config?.forenoon.start || '07:30'}
                   onChange={e => setConfig(prev => prev ? { ...prev, forenoon: { ...prev.forenoon, start: e.target.value } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">End Time</label>
-                <input type="time" value={config?.forenoon.end || '09:00'}
+                <input type="time" value={config?.forenoon.end || '10:00'}
                   onChange={e => setConfig(prev => prev ? { ...prev, forenoon: { ...prev.forenoon, end: e.target.value } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
               </div>
@@ -148,11 +150,11 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                   Token Expiry Time (minutes after end)
                 </label>
-                <input type="number" min="0" max="120" value={config?.forenoon.grace ?? 15}
-                  onChange={e => setConfig(prev => prev ? { ...prev, forenoon: { ...prev.forenoon, grace: parseInt(e.target.value) || 0 } } : prev)}
+                <input type="number" min="0" max="120" value={config?.forenoon.expiry ?? 15}
+                  onChange={e => setConfig(prev => prev ? { ...prev, forenoon: { ...prev.forenoon, expiry: parseInt(e.target.value) || 0 } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Tokens issued during this window expire {config?.forenoon.grace ?? 15} min after the End Time.
+                  Tokens issued during this window expire {config?.forenoon.expiry ?? 15} min after the End Time.
                 </p>
               </div>
             </div>
@@ -171,7 +173,7 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">End Time</label>
-                <input type="time" value={config?.afternoon.end || '14:00'}
+                <input type="time" value={config?.afternoon.end || '14:30'}
                   onChange={e => setConfig(prev => prev ? { ...prev, afternoon: { ...prev.afternoon, end: e.target.value } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
               </div>
@@ -179,11 +181,11 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                   Token Expiry Time (minutes after end)
                 </label>
-                <input type="number" min="0" max="120" value={config?.afternoon.grace ?? 15}
-                  onChange={e => setConfig(prev => prev ? { ...prev, afternoon: { ...prev.afternoon, grace: parseInt(e.target.value) || 0 } } : prev)}
+                <input type="number" min="0" max="120" value={config?.afternoon.expiry ?? 15}
+                  onChange={e => setConfig(prev => prev ? { ...prev, afternoon: { ...prev.afternoon, expiry: parseInt(e.target.value) || 0 } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Tokens issued during this window expire {config?.afternoon.grace ?? 15} min after the End Time.
+                  Tokens issued during this window expire {config?.afternoon.expiry ?? 15} min after the End Time.
                 </p>
               </div>
             </div>

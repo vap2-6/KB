@@ -31,14 +31,14 @@ reg_bp = Blueprint('reg_bp', __name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.abspath(os.path.join(BASE_DIR, 'uploads'))
-STUDENT_PHOTO_FOLDER = os.path.abspath(os.path.join(UPLOAD_FOLDER, 'student_photos'))
+STUDENT_MASTER_IMG_FOLDER = os.path.abspath(os.path.join(UPLOAD_FOLDER, 'student_master_img'))
 STUDENT_SIGNATURE_FOLDER = os.path.abspath(os.path.join(UPLOAD_FOLDER, 'student_signatures'))
 INCOME_PROOF_FOLDER = os.path.abspath(os.path.join(UPLOAD_FOLDER, 'income_proofs'))
 PDF_FOLDER = os.path.abspath(os.path.join(BASE_DIR, 'generated_pdfs'))
 
-# Automatically create the 3 target folders if they don't exist
+# Automatically create the target folders if they don't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(STUDENT_PHOTO_FOLDER, exist_ok=True)
+os.makedirs(STUDENT_MASTER_IMG_FOLDER, exist_ok=True)
 os.makedirs(STUDENT_SIGNATURE_FOLDER, exist_ok=True)
 os.makedirs(INCOME_PROOF_FOLDER, exist_ok=True)
 os.makedirs(PDF_FOLDER, exist_ok=True)
@@ -396,6 +396,238 @@ def check_registration_duplicate():
         logger.error(f"Check registration duplicate error: {e}")
         return jsonify({"exists": False, "check_error": str(e)})
 
+@reg_bp.route('/fetch-student', methods=['GET'])
+@reg_bp.route('/api/register/fetch-student', methods=['GET'])
+def fetch_student_by_dept_number():
+    dept_number = (request.args.get('dept_number') or request.args.get('dept') or '').strip()
+    if not dept_number:
+        return jsonify({"already_registered": False, "found": False, "error": "Department number required"}), 400
+
+    try:
+        conn = _get_mysql_connection()
+        try:
+            with conn.cursor() as cur:
+                # 1a. Check meal_registrations table for existing application
+                cur.execute("""
+                    SELECT registration_id, dept_number, student_name, status 
+                    FROM meal_registrations 
+                    WHERE (LOWER(TRIM(dept_number)) = %s OR LOWER(TRIM(registration_id)) = %s OR LOWER(TRIM(app_no)) = %s)
+                      AND status IN ('pending', 'approved')
+                    LIMIT 1
+                """, (dept_number.lower(), dept_number.lower(), dept_number.lower()))
+                reg_match = cur.fetchone()
+                if reg_match:
+                    return jsonify({
+                        "already_registered": True,
+                        "exists": True,
+                        "found": True,
+                        "message": "Already registered with this Department Number",
+                        "status": reg_match.get('status')
+                    })
+
+                # 1b. Check student_meals table for approved student account
+                cur.execute("""
+                    SELECT student_id, name FROM student_meals 
+                    WHERE LOWER(TRIM(student_id)) = %s LIMIT 1
+                """, (dept_number.lower(),))
+                sm_match = cur.fetchone()
+                if sm_match:
+                    return jsonify({
+                        "already_registered": True,
+                        "exists": True,
+                        "found": True,
+                        "message": "Already registered with this Department Number",
+                        "status": "approved"
+                    })
+
+                # 1c. Check app_state table for meal_registrations
+                cur.execute("SELECT data FROM app_state WHERE id = 1")
+                row = cur.fetchone()
+                app_state_data = None
+                if row:
+                    raw_data = row[0] if isinstance(row, (tuple, list)) else row.get('data') if isinstance(row, dict) else row
+                    app_state_data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
+                    if isinstance(app_state_data, dict):
+                        table = app_state_data.get('tables', {}).get(REGISTRATIONS_TABLE, {})
+                        for r in table.get('rows', []):
+                            r_dept = (r.get('dept_number') or r.get('registration_id') or r.get('app_no') or '').strip().lower()
+                            if r_dept == dept_number.lower() and r.get('status') in ('pending', 'approved'):
+                                return jsonify({
+                                    "already_registered": True,
+                                    "exists": True,
+                                    "found": True,
+                                    "message": "Already registered with this Department Number",
+                                    "status": r.get('status')
+                                })
+
+                # 1d. Check pending_registrations.json file
+                pending_file = os.path.join(UPLOAD_FOLDER, 'pending_registrations.json')
+                if os.path.exists(pending_file):
+                    try:
+                        with open(pending_file, 'r', encoding='utf-8') as pf:
+                            pending_list = json.load(pf)
+                            for r in pending_list:
+                                r_dept = (r.get('dept_number') or r.get('registration_id') or r.get('app_no') or '').strip().lower()
+                                if r_dept == dept_number.lower() and r.get('status', 'pending') in ('pending', 'approved'):
+                                    return jsonify({
+                                        "already_registered": True,
+                                        "exists": True,
+                                        "found": True,
+                                        "message": "Already registered with this Department Number",
+                                        "status": r.get('status', 'pending')
+                                    })
+                    except Exception:
+                        pass
+
+                # Step 2: Student is not registered yet. Search master tables / imported CSV tables
+                found_student = None
+
+                # Search in app_state tables (where CSV files are imported by Admin)
+                if app_state_data and isinstance(app_state_data, dict):
+                    tables_dict = app_state_data.get('tables', {})
+                    for tbl_name, tbl_info in tables_dict.items():
+                        if tbl_name == REGISTRATIONS_TABLE:
+                            continue
+                        rows = tbl_info.get('rows', [])
+                        for r in rows:
+                            r_dept = (r.get('dept_number') or r.get('department_number') or r.get('student_id') or r.get('roll_no') or r.get('reg_no') or r.get('dept_no') or '').strip()
+                            if r_dept == dept_number:
+                                found_student = {
+                                    "student_name": r.get('student_name') or r.get('name') or r.get('full_name'),
+                                    "course": r.get('course') or r.get('degree') or r.get('grade_section'),
+                                    "department": r.get('department') or r.get('dept') or r.get('branch'),
+                                    "degree_year": r.get('degree_year') or r.get('year') or r.get('year_of_study'),
+                                    "date_of_birth": r.get('date_of_birth') or r.get('dob'),
+                                    "age": r.get('age'),
+                                    "mobile_no": r.get('mobile_no') or r.get('phone') or r.get('mobile'),
+                                    "email": r.get('email'),
+                                    "father_name": r.get('father_name') or r.get('father_s_name') or r.get('parent_name'),
+                                    "father_occupation": r.get('father_occupation'),
+                                    "employment_type": r.get('employment_type'),
+                                    "annual_income": r.get('annual_income') or r.get('income'),
+                                    "permanent_address": r.get('permanent_address') or r.get('address'),
+                                    "permanent_pin": r.get('permanent_pin') or r.get('pincode') or r.get('pin'),
+                                    "local_address": r.get('local_address'),
+                                    "local_pin": r.get('local_pin'),
+                                    "religion": r.get('religion'),
+                                    "community": r.get('community'),
+                                    "distance_km": r.get('distance_km'),
+                                    "forenoon_meal": r.get('forenoon_meal'),
+                                    "afternoon_meal": r.get('afternoon_meal')
+                                }
+                                break
+                        if found_student:
+                            break
+
+                # Search physical MySQL tables
+                if not found_student:
+                    cur.execute("SHOW TABLES")
+                    raw_tables = cur.fetchall()
+                    db_tables = [list(t.values())[0] if isinstance(t, dict) else t[0] for t in raw_tables]
+                    for tbl in db_tables:
+                        if tbl in ('app_state', 'schema_migrations', 'meal_registrations', 'users', 'meal_tokens', 'scan_audit_log', 'import_logs', 'export_logs', 'audit_logs'):
+                            continue
+                        try:
+                            cur.execute(f"DESCRIBE `{tbl}`")
+                            cols = [c['Field'].lower() if isinstance(c, dict) else c[0].lower() for c in cur.fetchall()]
+                            dept_col = next((c for c in cols if c in ('dept_number', 'department_number', 'student_id', 'roll_no', 'reg_no', 'dept_no')), None)
+                            if dept_col:
+                                cur.execute(f"SELECT * FROM `{tbl}` WHERE `{dept_col}` = %s LIMIT 1", (dept_number,))
+                                st_row = cur.fetchone()
+                                if st_row:
+                                    found_student = {
+                                        "student_name": st_row.get('student_name') or st_row.get('name') or st_row.get('full_name'),
+                                        "course": st_row.get('course') or st_row.get('degree') or st_row.get('grade_section'),
+                                        "department": st_row.get('department') or st_row.get('dept') or st_row.get('branch'),
+                                        "degree_year": st_row.get('degree_year') or st_row.get('year'),
+                                        "date_of_birth": st_row.get('date_of_birth') or st_row.get('dob'),
+                                        "age": st_row.get('age'),
+                                        "mobile_no": st_row.get('mobile_no') or st_row.get('phone') or st_row.get('mobile'),
+                                        "email": st_row.get('email'),
+                                        "father_name": st_row.get('father_name') or st_row.get('parent_name'),
+                                        "father_occupation": st_row.get('father_occupation'),
+                                        "employment_type": st_row.get('employment_type'),
+                                        "annual_income": st_row.get('annual_income') or st_row.get('income'),
+                                        "permanent_address": st_row.get('permanent_address') or st_row.get('address'),
+                                        "permanent_pin": st_row.get('permanent_pin') or st_row.get('pincode') or st_row.get('pin'),
+                                        "local_address": st_row.get('local_address'),
+                                        "local_pin": st_row.get('local_pin'),
+                                        "religion": st_row.get('religion'),
+                                        "community": st_row.get('community'),
+                                        "distance_km": st_row.get('distance_km'),
+                                        "student_photo_url": st_row.get('student_photo_url') or st_row.get('photo_url') or st_row.get('image_url') or st_row.get('image_path') or st_row.get('photo_path') or st_row.get('img_path') or st_row.get('photo') or st_row.get('image')
+                                    }
+                                    break
+                        except Exception:
+                            continue
+
+                if found_student:
+                    # Also check photo field from app_state match if not present
+                    photo_val = (found_student.get('student_photo_url') or found_student.get('photo_url') or 
+                                 found_student.get('image_url') or found_student.get('image_path') or 
+                                 found_student.get('photo_path') or found_student.get('img_path') or 
+                                 found_student.get('photo') or found_student.get('image'))
+                    
+                    resolved_photo_url = None
+                    if photo_val and str(photo_val).strip():
+                        p_str = str(photo_val).strip()
+                        if p_str.startswith('http://') or p_str.startswith('https://') or p_str.startswith('data:'):
+                            resolved_photo_url = p_str
+                        else:
+                            if not p_str.startswith('/'):
+                                p_str = '/' + p_str
+                            if not p_str.startswith('/uploads/'):
+                                p_str = '/uploads/' + p_str.lstrip('/')
+                            resolved_photo_url = p_str
+                    else:
+                        # Auto-detect image file on disk in student_master_img or student_photos
+                        possible_subdirs = ['student_master_img', 'student_photos']
+                        possible_exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+                        search_bases = [
+                            os.path.join(BASE_DIR, 'registration_backend', 'uploads'),
+                            os.path.join(BASE_DIR, 'uploads'),
+                            UPLOAD_FOLDER
+                        ]
+                        for sub in possible_subdirs:
+                            for ext in possible_exts:
+                                fname = f"{dept_number}{ext}"
+                                for base in search_bases:
+                                    fpath = os.path.join(base, sub, fname)
+                                    if os.path.exists(fpath):
+                                        resolved_photo_url = f"/uploads/{sub}/{fname}"
+                                        break
+                                if resolved_photo_url:
+                                    break
+                            if resolved_photo_url:
+                                break
+
+                    if resolved_photo_url:
+                        found_student['student_photo_url'] = resolved_photo_url
+
+                    cleaned_student = {k: v for k, v in found_student.items() if v is not None}
+                    return jsonify({
+                        "already_registered": False,
+                        "found": True,
+                        "student": cleaned_student
+                    })
+                else:
+                    return jsonify({
+                        "already_registered": False,
+                        "found": False,
+                        "message": "No pre-filled details found for this Department Number"
+                    })
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        logger.error(f"Error in fetch_student_by_dept_number: {e}")
+        return jsonify({
+            "already_registered": False,
+            "found": False,
+            "error": str(e)
+        }), 500
+
 @reg_bp.route('/api/register', methods=['POST'])
 @reg_bp.route('/api/register/submit', methods=['POST'])
 @reg_bp.route('/submit', methods=['POST'])
@@ -527,7 +759,7 @@ def register_student():
         # Determine unique student register code for filename normalization
         reg_code = secure_filename(str(dept_number or app_no or f"REG_{uuid.uuid4().hex[:8]}").strip().replace(' ', '_'))
 
-        # 2. Save the Passport Photo into the consolidated uploads/student_photos folder
+        # 2. Assign Passport Photo from uploads/student_master_img folder
         photo_file = request.files.get('student_photo') or request.files.get('student_image') or request.files.get('photo')
         photo_path = ""
         photo_rel_path = ""
@@ -535,15 +767,31 @@ def register_student():
             orig_name = secure_filename(photo_file.filename)
             ext = os.path.splitext(orig_name)[1].lower() if orig_name else '.png'
             safe_name = f"{reg_code}_photo{ext}"
-            photo_path = os.path.join(STUDENT_PHOTO_FOLDER, safe_name)
+            photo_path = os.path.join(STUDENT_MASTER_IMG_FOLDER, safe_name)
             photo_file.save(photo_path)
-            photo_rel_path = f"/uploads/student_photos/{safe_name}"
+            photo_rel_path = f"/uploads/student_master_img/{safe_name}"
         else:
-            safe_name = f"{reg_code}_photo.png"
-            photo_path = os.path.join(STUDENT_PHOTO_FOLDER, safe_name)
-            with open(photo_path, 'wb') as f:
-                f.write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
-            photo_rel_path = f"/uploads/student_photos/{safe_name}"
+            found_master = None
+            possible_exts = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
+            for check_id in [dept_number, reg_code]:
+                if check_id:
+                    for ext in possible_exts:
+                        candidate = f"{str(check_id).strip()}{ext}"
+                        if os.path.exists(os.path.join(STUDENT_MASTER_IMG_FOLDER, candidate)):
+                            found_master = candidate
+                            break
+                if found_master:
+                    break
+
+            if found_master:
+                photo_rel_path = f"/uploads/student_master_img/{found_master}"
+            else:
+                safe_name = f"{reg_code}_photo.png"
+                photo_path = os.path.join(STUDENT_MASTER_IMG_FOLDER, safe_name)
+                if not os.path.exists(photo_path):
+                    with open(photo_path, 'wb') as f:
+                        f.write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+                photo_rel_path = f"/uploads/student_master_img/{safe_name}"
 
         # Save Signature directly into uploads/student_signatures folder
         signature_file = request.files.get('applicant_signature') or request.files.get('signature') or request.files.get('student_signature')

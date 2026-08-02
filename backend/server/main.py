@@ -79,7 +79,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Sets 16MB file limit for 
 limiter = Limiter(get_remote_address, app=app, default_limits=["50000 per day", "10000 per hour"])
 
 # Ensure defensive server file buffer directories exist on disk
-UPLOAD_SUBDIRS = ['student_photos', 'student_signatures', 'income_proofs']
+UPLOAD_SUBDIRS = ['student_photos', 'student_signatures', 'income_proofs', 'student_master_img']
 active_uploads_dir = os.path.join(BASE_DIR, 'registration_backend', 'uploads')
 for sub in UPLOAD_SUBDIRS:
     os.makedirs(os.path.join(active_uploads_dir, sub), exist_ok=True)
@@ -102,6 +102,16 @@ app.register_blueprint(admin_bp, url_prefix='/api/admin')
 app.register_blueprint(staff_bp, url_prefix='/api/staff')
 app.register_blueprint(reg_bp, url_prefix='/api/register')
 app.register_blueprint(student_bp, url_prefix='/api/student')
+
+@app.route('/api/public/meal-config', methods=['GET'])
+def get_public_meal_config():
+    from admin_backend.app import get_db, _get_meal_config
+    conn = get_db()
+    try:
+        cfg = _get_meal_config(conn)
+        return jsonify(cfg)
+    finally:
+        conn.close()
 
 # 7. Helper to serve built SPA frontends from their dist directories
 from flask import send_from_directory, render_template_string, redirect
@@ -152,12 +162,14 @@ def serve_global_uploads(filename):
     uploads_dir2 = os.path.join(PROJECT_ROOT, 'uploads')
     
     target_filename = filename
-    if filename.startswith('student_images/'):
-        target_filename = filename.replace('student_images/', 'student_photos/', 1)
+    if filename.startswith('student_photos/'):
+        target_filename = filename.replace('student_photos/', 'student_master_img/', 1)
+    elif filename.startswith('student_images/'):
+        target_filename = filename.replace('student_images/', 'student_master_img/', 1)
     elif filename.startswith('signatures/'):
         target_filename = filename.replace('signatures/', 'student_signatures/', 1)
     elif filename.startswith('students/'):
-        target_filename = filename.replace('students/', 'student_photos/', 1)
+        target_filename = filename.replace('students/', 'student_master_img/', 1)
 
     for candidate in [target_filename, filename]:
         if os.path.exists(os.path.join(uploads_dir1, candidate)):

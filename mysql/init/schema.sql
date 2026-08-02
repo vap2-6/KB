@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS `data_io_logs` (
 
 -- Seed default meal timings into app_state
 INSERT INTO `app_state` (`id`, `data`) VALUES
-(1, '{"meal_timings": {"forenoon": {"start": "07:30", "end": "10:00", "grace": 15}, "afternoon": {"start": "12:00", "end": "14:30", "grace": 15}}}')
+(1, '{"meal_timings": {"forenoon": {"start": "07:30", "end": "10:00", "expiry": 15}, "afternoon": {"start": "12:00", "end": "14:30", "expiry": 15}}}')
 ON DUPLICATE KEY UPDATE data=VALUES(data);
 
 SET FOREIGN_KEY_CHECKS = 1;

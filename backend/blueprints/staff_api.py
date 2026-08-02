@@ -57,7 +57,8 @@ def approve_student():
         return jsonify({"status": "DUPLICATE", "error": "Token already exists for this meal today", "student": {"student_id": student.student_id, "name": student.name}}), 200
     token_uid = _generate_token_uid(meal_type)
     window_end = datetime.datetime.combine(now.date(), datetime.datetime.strptime(str(active.end_time), '%H:%M:%S').time())
-    expiry_dt = window_end + datetime.timedelta(minutes=int(active.grace_minutes))
+    expiry_mins = getattr(active, 'expiry_minutes', 15)
+    expiry_dt = window_end + datetime.timedelta(minutes=int(expiry_mins))
     token = MealToken(
         token_uid=token_uid, student_id=student_id, meal_type=meal_type,
         status='approved', scanned_by=scanner_id, scanned_at=now,

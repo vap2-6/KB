@@ -755,7 +755,10 @@ def _check_active_window(meal_type):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, start_time, end_time, grace_minutes FROM meal_windows
+                SELECT id, start_time, end_time, 
+                       COALESCE(expiry_minutes, grace_minutes, 15) as expiry_minutes,
+                       COALESCE(grace_minutes, expiry_minutes, 15) as grace_minutes
+                FROM meal_windows
                 WHERE meal_type = %s AND is_active = 1
                   AND (day_of_week IS NULL OR day_of_week = DAYOFWEEK(CURDATE()) - 1)
                   AND start_time <= CURTIME() AND end_time >= CURTIME()
@@ -1209,20 +1212,52 @@ WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunda
 
 def _get_meal_config(conn):
     with conn.cursor() as cur:
+        # First query meal_windows SQL table if configured
+        try:
+            cur.execute("""
+                SELECT meal_type, MIN(start_time) as start_t, MAX(end_time) as end_t, 
+                       MAX(COALESCE(expiry_minutes, grace_minutes)) as expiry_m 
+                FROM meal_windows WHERE is_active = 1 GROUP BY meal_type
+            """)
+            rows = cur.fetchall()
+            if rows:
+                res = {}
+                for r in rows:
+                    mt = r['meal_type']
+                    st = str(r['start_t'])[:5] if r.get('start_t') else '07:30'
+                    et = str(r['end_t'])[:5] if r.get('end_t') else '10:00'
+                    exp = int(r['expiry_m']) if r.get('expiry_m') is not None else 15
+                    res[mt] = {"start": st, "end": et, "expiry": exp}
+                
+                cur.execute("SELECT DISTINCT day_of_week FROM meal_windows WHERE is_active = 1")
+                day_rows = cur.fetchall()
+                res['days'] = [d['day_of_week'] for d in day_rows if d.get('day_of_week') is not None]
+                if not res['days']:
+                    res['days'] = [0, 1, 2, 3, 4, 5, 6]
+                if 'forenoon' in res or 'afternoon' in res:
+                    return res
+        except Exception:
+            pass
+
+        # Fallback to app_state JSON
         cur.execute("SELECT data FROM app_state WHERE id = 1")
         row = cur.fetchone()
-        if row:
-            state = json.loads(row['data'])
-            cfg = state.get('meal_config')
+        if row and row.get('data'):
+            state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+            cfg = state.get('meal_config') or state.get('meal_timings')
             if cfg:
+                for mt in ('forenoon', 'afternoon'):
+                    if mt in cfg:
+                        exp = cfg[mt].get('expiry', cfg[mt].get('grace', 15))
+                        cfg[mt]['expiry'] = exp
                 return cfg
         return _default_meal_config()
 
 def _default_meal_config():
     return {
         "days": [0, 1, 2, 3, 4, 5, 6],
-        "forenoon": {"start": "07:00", "end": "09:00", "grace": 15},
-        "afternoon": {"start": "12:00", "end": "14:00", "grace": 15}
+        "forenoon": {"start": "07:30", "end": "10:00", "expiry": 15},
+        "afternoon": {"start": "12:00", "end": "14:30", "expiry": 15}
     }
 
 def _sync_meal_windows(conn, cfg):
@@ -1231,18 +1266,18 @@ def _sync_meal_windows(conn, cfg):
         days = cfg.get('days', [])
         for meal_type in ('forenoon', 'afternoon'):
             m = cfg.get(meal_type, {})
-            start_t = m.get('start', '07:00')
-            end_t = m.get('end', '09:00')
-            grace = m.get('grace', 15)
+            start_t = m.get('start', '07:30')
+            end_t = m.get('end', '10:00')
+            expiry = m.get('expiry', m.get('grace', 15))
             for dow in days:
                 cur.execute(
                     "INSERT INTO meal_windows (meal_type,day_of_week,start_time,end_time,grace_minutes,is_active) VALUES (%s,%s,%s,%s,%s,1)",
-                    (meal_type, dow, start_t, end_t, grace)
+                    (meal_type, dow, start_t, end_t, expiry)
                 )
 
 @admin_bp.route('/meal-config', methods=['GET'])
 @admin_bp.route('/api/meal-config', methods=['GET'])
-@authenticate
+@admin_bp.route('/api/public/meal-config', methods=['GET'])
 def get_meal_config():
     conn = get_db()
     try:
@@ -1265,10 +1300,14 @@ def update_meal_config():
             m = data.get(meal_type, {})
             if not m.get('start') or not m.get('end'):
                 return jsonify({"error": f"{meal_type} requires start and end time"}), 400
+        
+        fn_exp = int(data['forenoon'].get('expiry', data['forenoon'].get('grace', 15)))
+        an_exp = int(data['afternoon'].get('expiry', data['afternoon'].get('grace', 15)))
+
         cfg = {
             "days": days,
-            "forenoon": {"start": data['forenoon']['start'], "end": data['forenoon']['end'], "grace": int(data['forenoon'].get('grace', 15))},
-            "afternoon": {"start": data['afternoon']['start'], "end": data['afternoon']['end'], "grace": int(data['afternoon'].get('grace', 15))}
+            "forenoon": {"start": data['forenoon']['start'], "end": data['forenoon']['end'], "expiry": fn_exp},
+            "afternoon": {"start": data['afternoon']['start'], "end": data['afternoon']['end'], "expiry": an_exp}
         }
         conn = get_db()
         try:
@@ -1372,7 +1411,8 @@ def scan_student_qr():
         token_uid = _generate_token_uid(meal_type)
         window_end = datetime.datetime.strptime(str(active_window['end_time']), '%H:%M:%S').time()
         expiry_dt = datetime.datetime.combine(datetime.datetime.now().date(), window_end)
-        expiry_dt += datetime.timedelta(minutes=int(active_window['grace_minutes']))
+        exp_mins = active_window.get('expiry_minutes') or active_window.get('grace_minutes') or 15
+        expiry_dt += datetime.timedelta(minutes=int(exp_mins))
         conn2 = get_db()
         try:
             with conn2.cursor() as cur:
@@ -1741,9 +1781,59 @@ def _normalize_registration_row(r):
     if isinstance(r.get('submitted_at'), (datetime.datetime, datetime.date)):
         r['submitted_at'] = r['submitted_at'].isoformat()
 
-    photo = r.get('student_image_path') or r.get('student_photo_url') or ''
-    r['student_image_path'] = photo
-    r['student_photo_url'] = photo
+    dept_no = str(r.get('dept_number') or r.get('dept_no') or r.get('last_year_id') or r.get('username') or r.get('app_no') or '').strip()
+    student_name = quote_plus(str(r.get('student_name') or r.get('name') or 'Student').strip())
+    avatar_url = f"https://ui-avatars.com/api/?name={student_name}&background=random"
+
+    # Search for actual photo file in student_master_img and student_photos
+    resolved_photo = None
+    possible_exts = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
+    search_dirs = [
+        (os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_master_img'), 'student_master_img'),
+        (os.path.join(os.path.dirname(__file__), 'uploads', 'student_master_img'), 'student_master_img'),
+        (os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_photos'), 'student_photos'),
+        (os.path.join(os.path.dirname(__file__), 'uploads', 'student_photos'), 'student_photos'),
+    ]
+
+    if dept_no:
+        for ext in possible_exts:
+            for dir_path, sub_folder in search_dirs:
+                for candidate_name in [f"{dept_no}{ext}", f"{dept_no}_photo{ext}", f"{dept_no}_photo_safe{ext}"]:
+                    full_path = os.path.join(dir_path, candidate_name)
+                    if os.path.exists(full_path) and os.path.getsize(full_path) > 500:
+                        resolved_photo = f"/uploads/{sub_folder}/{candidate_name}"
+                        break
+                if resolved_photo:
+                    break
+            if resolved_photo:
+                break
+
+    if not resolved_photo:
+        existing = (r.get('student_image_path') or r.get('student_photo_url') or '').strip()
+        if existing and (existing.startswith('http://') or existing.startswith('https://') or existing.startswith('data:')):
+            resolved_photo = existing
+        elif existing:
+            rel_clean = existing.lstrip('/')
+            check_bases = [
+                os.path.join(os.path.dirname(__file__), '..', 'registration_backend'),
+                os.path.join(os.path.dirname(__file__), '..'),
+                os.path.dirname(__file__)
+            ]
+            file_valid = False
+            for base in check_bases:
+                fp = os.path.join(base, rel_clean)
+                if os.path.exists(fp) and os.path.getsize(fp) > 500:
+                    file_valid = True
+                    break
+            if file_valid:
+                resolved_photo = '/' + rel_clean
+            else:
+                resolved_photo = avatar_url
+        else:
+            resolved_photo = avatar_url
+
+    r['student_image_path'] = resolved_photo
+    r['student_photo_url'] = resolved_photo
 
     sig = r.get('signature_path') or r.get('applicant_signature_url') or ''
     r['signature_path'] = sig
@@ -2107,6 +2197,10 @@ def get_table_records(tableName):
                     "tableName": matched_tbl,
                     "columns": columns_meta,
                     "rows": paginated,
+                    "total": total,
+                    "page": page,
+                    "limit": limit,
+                    "totalPages": total_pages,
                     "pagination": {
                         "page": page,
                         "limit": limit,

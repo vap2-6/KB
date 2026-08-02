@@ -5,7 +5,7 @@ import base64
 import json
 from flask import Flask, request, jsonify, Blueprint
 import mysql.connector
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta as dt_timedelta
 from flask_cors import CORS
 
 # app = Flask(__name__)
@@ -123,10 +123,10 @@ def map_db_token_to_frontend(db_token):
     
     # Map DB status to Frontend status ('active', 'redeemed', 'expired', 'rejected')
     status_db = str(db_token.get('status') or '').lower()
-    if status_db in ['expired']:
+    if db_token.get('redeemed_at') and status_db != 'rejected':
+        status_fe = 'redeemed'
+    elif status_db in ['expired']:
         status_fe = 'expired'
-    elif status_db in ['active', 'awaiting_scan', 'token_issued', 'approved', 'staff_verified']:
-        status_fe = 'active'
     elif status_db in ['redeemed', 'claimed', 'used']:
         status_fe = 'redeemed'
     elif status_db in ['rejected']:
@@ -246,13 +246,12 @@ def verify_token(token_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-
         # First try to decode as a signed QR payload
         qr_data, qr_err = _decode_qr_payload(token_id)
 
         # Extract meaningful IDs from the decoded payload
-        decoded_student_id = None
         decoded_token_uid = None
+        decoded_student_id = None
         if qr_data:
             decoded_token_uid = qr_data.get('tu')          # token QR
             decoded_student_id = qr_data.get('sid')        # student or token QR
@@ -390,45 +389,59 @@ def issue_token():
             conn.close()
             return jsonify({"error": "Access Denied: Profile is ineligible for this meal session"}), 403
             
-        # Check if an active token already exists for this student
+        # Lazy expire past tokens or tokens whose expiry_time has passed
         cursor.execute("""
-            SELECT * FROM meal_tokens 
-            WHERE student_id = %s AND status = 'active'
-        """, (actual_student_id,))
-        existing = cursor.fetchone()
-        if existing:
-            # Audit log the failed attempt
-            cursor.execute("""
-                INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, result, detail)
-                VALUES (%s, 'approval_staff', 'student_id_qr', %s, %s, 'duplicate_meal', 'Student already has an active token')
-            """, (staff_id, student_reg, actual_student_id))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return jsonify({'error': 'Student already has an active meal token issued.'}), 400
-            
-        # Check if a token has already been generated for this student, meal type, and date today
+            UPDATE meal_tokens 
+            SET status = 'expired'
+            WHERE status IN ('token_issued','staff_verified','approved','active','awaiting_scan','open')
+              AND ((expiry_time IS NOT NULL AND expiry_time < NOW()) OR DATE(created_at) < CURDATE())
+        """)
+        conn.commit()
+
+        # Check if an unexpired non-rejected token exists for this student and meal today
         cursor.execute("""
             SELECT * FROM meal_tokens 
             WHERE student_id = %s AND meal_type = %s AND DATE(created_at) = CURDATE()
+              AND status NOT IN ('rejected', 'expired')
+            ORDER BY id DESC LIMIT 1
         """, (actual_student_id, meal_type_db))
         existing_today = cursor.fetchone()
         if existing_today:
-            # Audit log the failed attempt
+            st = str(existing_today.get('status', '')).lower()
+            if st in ('redeemed', 'claimed', 'used'):
+                msg = 'Student has already claimed this meal today.'
+            else:
+                msg = 'Student already has an active meal token issued today.'
+            
             cursor.execute("""
                 INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, result, detail)
-                VALUES (%s, 'approval_staff', 'student_id_qr', %s, %s, 'duplicate_meal', 'Student already has a meal token for this session today')
-            """, (staff_id, student_reg, actual_student_id))
+                VALUES (%s, 'approval_staff', 'student_id_qr', %s, %s, 'duplicate_meal', %s)
+            """, (staff_id, student_reg, actual_student_id, msg))
             conn.commit()
             cursor.close()
             conn.close()
-            return jsonify({'error': f'Student has already been issued a {meal_type} token today.'}), 400
+            return jsonify({'error': msg}), 400
+
+        # Query active window for expiration calculation
+        cursor.execute("SELECT * FROM meal_windows WHERE meal_type = %s AND is_active = 1 LIMIT 1", (meal_type_db,))
+        active_window = cursor.fetchone()
+        if active_window and active_window.get('end_time'):
+            w_str = str(active_window['end_time'])
+            try:
+                w_end = datetime.strptime(w_str, '%H:%M:%S' if len(w_str) == 8 else '%H:%M').time()
+            except Exception:
+                w_end = dt_time(14, 30) if meal_type_db == 'afternoon' else dt_time(10, 0)
+            exp_m = active_window.get('expiry_minutes') or active_window.get('grace_minutes') or 15
+            expiry_dt = datetime.combine(datetime.now().date(), w_end) + dt_timedelta(minutes=int(exp_m))
+        else:
+            w_end = dt_time(14, 30) if meal_type_db == 'afternoon' else dt_time(10, 0)
+            expiry_dt = datetime.combine(datetime.now().date(), w_end) + dt_timedelta(minutes=15)
             
-        # Create token
+        # Create fresh active token (Reactivates token for student if expired)
         cursor.execute("""
-            INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by) 
-            VALUES (%s, %s, %s, %s, 'active', %s)
-        """, (token_id, actual_student_id, student_name, meal_type_db, staff_id))
+            INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by, expiry_time) 
+            VALUES (%s, %s, %s, %s, 'active', %s, %s)
+        """, (token_id, actual_student_id, student_name, meal_type_db, staff_id, expiry_dt))
         
         # Add a success log in scan audit
         cursor.execute("""
@@ -455,12 +468,10 @@ def update_token(token_id):
         return jsonify({'error': 'Missing status field'}), 400
 
     status_fe_lower = str(status_fe).lower().strip()
-    if status_fe_lower == 'approved':
-        status_db = 'approved'
-    elif status_fe_lower in ['redeemed', 'claimed']:
+    if status_fe_lower in ['approved', 'redeemed', 'claimed', 'used', 'success', 'staff_verified']:
         status_db = 'redeemed'
     else:
-        status_db = 'rejected'
+        status_db = 'redeemed'
 
     # Decode QR payload if needed
     qr_data, _ = _decode_qr_payload(token_id)
@@ -468,7 +479,6 @@ def update_token(token_id):
     decoded_student_id = qr_data.get('sid') if qr_data else None
     raw_id = qr_data.get('_raw') if qr_data else token_id
     search_ids = list(dict.fromkeys(filter(None, [decoded_token_uid, decoded_student_id, raw_id, token_id])))
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -485,7 +495,7 @@ def update_token(token_id):
             conn.close()
             return jsonify({'error': 'Token not found'}), 404
 
-        if token.get('status') in ['redeemed', 'approved', 'claimed', 'rejected']:
+        if token.get('status') in ['redeemed', 'claimed', 'rejected'] and token.get('redeemed_at'):
             cursor.close()
             conn.close()
             return jsonify({'error': f"Token has already been {token.get('status')}"}), 409
@@ -497,12 +507,16 @@ def update_token(token_id):
         """, (status_db, staff_id, staff_id, token['token_uid']))
 
         # Add to scan audit log
-        result_audit = 'success' if status_db == 'approved' else 'invalid_token'
+        result_audit = 'success' if status_db == 'redeemed' else 'invalid_token'
         cursor.execute("""
             INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
             VALUES (%s, 'canteen_staff', 'token_qr', %s, %s, %s, %s, %s)
         """, (staff_id, token_id, token['student_id'], token['token_uid'], result_audit, f'Token status updated to {status_db}'))
+<<<<<<< HEAD
 
+=======
+        
+>>>>>>> 8625dbd (major update in reg form and student portal)
         conn.commit()
         cursor.close()
         conn.close()

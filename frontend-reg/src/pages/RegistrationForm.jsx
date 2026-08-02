@@ -10,6 +10,227 @@ export default function MealRegistrationForm() {
     const [dobDate, setDobDate] = useState("");
     const [dobInput, setDobInput] = useState("");
     const [calculatedAge, setCalculatedAge] = useState("");
+<<<<<<< HEAD
+=======
+    const [deptNumber, setDeptNumber] = useState("");
+    const [isFetchingStudent, setIsFetchingStudent] = useState(false);
+    const [fetchStatusMessage, setFetchStatusMessage] = useState("");
+    const [mealSession, setMealSession] = useState("");
+    const [isAutoFetched, setIsAutoFetched] = useState(false);
+    const [autoCourse, setAutoCourse] = useState("");
+    const [autoDepartment, setAutoDepartment] = useState("");
+
+    const fetchStudentByDeptNumber = async (num) => {
+        const cleanNum = (num || "").trim();
+        if (!cleanNum || cleanNum.length !== 13) return;
+
+        setIsFetchingStudent(true);
+        setFetchStatusMessage("Searching database...");
+
+        try {
+            let base = import.meta.env.VITE_API_BASE_URL || '/api/register';
+            if (base.endsWith('/api/register')) {
+                base = base.substring(0, base.length - '/api/register'.length);
+            }
+            base = base.replace(/\/+$/, '');
+
+            const candidateUrls = [
+                `${base}/api/register/fetch-student?dept_number=${encodeURIComponent(cleanNum)}`,
+                `/api/register/fetch-student?dept_number=${encodeURIComponent(cleanNum)}`,
+                `${base}/api/register/check?dept=${encodeURIComponent(cleanNum)}`,
+                `/api/register/check?dept=${encodeURIComponent(cleanNum)}`
+            ];
+
+            let fetchedData = null;
+            let alreadyReg = false;
+            for (const fetchUrl of candidateUrls) {
+                try {
+                    const res = await fetch(fetchUrl);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.already_registered || data.exists) {
+                            alreadyReg = true;
+                            break;
+                        }
+                        if (data.found && data.student) {
+                            fetchedData = data.student;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    // try next URL
+                }
+            }
+
+            if (alreadyReg) {
+                setFetchStatusMessage("⚠ Already registered with this Department Number");
+                setIsAlreadyRegistered(true);
+                setIsAutoFetched(false);
+                return;
+            }
+
+            if (fetchedData) {
+                setIsAlreadyRegistered(false);
+                setIsAutoFetched(true);
+                setFetchStatusMessage("✓ Student details auto-fetched");
+
+                if (fetchedData.student_name) {
+                    const el = document.getElementById('student_name');
+                    if (el) el.value = fetchedData.student_name;
+                }
+                if (fetchedData.date_of_birth) {
+                    let isoDate = fetchedData.date_of_birth;
+                    if (isoDate.includes('/')) {
+                        const p = isoDate.split('/');
+                        if (p.length === 3) {
+                            isoDate = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+                        }
+                    }
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+                        setDobDate(isoDate);
+                        setDobInput(formatIsoToDdMmYyyy(isoDate));
+                        setCalculatedAge(calculateAgeFromIsoDate(isoDate));
+                    }
+                }
+                if (fetchedData.course) {
+                    const el = document.getElementById('course');
+                    if (el) el.value = fetchedData.course;
+                    setAutoCourse(fetchedData.course);
+                }
+                if (fetchedData.department) {
+                    const el = document.getElementById('department');
+                    if (el) el.value = fetchedData.department;
+                    setAutoDepartment(fetchedData.department);
+                }
+                if (fetchedData.degree_year) {
+                    const el = document.getElementById('degree_year_select');
+                    if (el) el.value = String(fetchedData.degree_year);
+                }
+                if (fetchedData.permanent_address) {
+                    const el = document.getElementById('permanent_address');
+                    if (el) el.value = fetchedData.permanent_address;
+                }
+                if (fetchedData.permanent_pin) {
+                    const el = document.getElementById('permanent_pin');
+                    if (el) el.value = fetchedData.permanent_pin;
+                }
+                if (fetchedData.local_address) {
+                    const el = document.getElementById('local_address');
+                    if (el) el.value = fetchedData.local_address;
+                }
+                if (fetchedData.local_pin) {
+                    const el = document.getElementById('local_pin');
+                    if (el) el.value = fetchedData.local_pin;
+                }
+                if (fetchedData.landline) {
+                    const el = document.getElementById('landline');
+                    if (el) el.value = fetchedData.landline;
+                }
+                if (fetchedData.mobile_no) {
+                    const el = document.getElementById('mobile_no');
+                    if (el) el.value = fetchedData.mobile_no;
+                }
+                if (fetchedData.email) {
+                    const el = document.getElementById('email');
+                    if (el) el.value = fetchedData.email;
+                }
+                if (fetchedData.father_name) {
+                    const el = document.getElementById('father_name');
+                    if (el) el.value = fetchedData.father_name;
+                }
+                if (fetchedData.father_occupation) {
+                    const el = document.getElementById('father_occupation');
+                    if (el) el.value = fetchedData.father_occupation;
+                }
+                if (fetchedData.employment_type) {
+                    const el = document.getElementById('employment_type');
+                    if (el) el.value = fetchedData.employment_type;
+                }
+                if (fetchedData.annual_income) {
+                    const el = document.getElementById('annual_income');
+                    if (el) el.value = fetchedData.annual_income;
+                }
+                if (fetchedData.religion) {
+                    const el = document.getElementById('religion');
+                    if (el) el.value = fetchedData.religion;
+                }
+                if (fetchedData.community) {
+                    const el = document.getElementById('community');
+                    if (el) el.value = fetchedData.community;
+                }
+                if (fetchedData.distance_km) {
+                    const el = document.getElementById('distance_km');
+                    if (el) el.value = fetchedData.distance_km;
+                }
+                if (fetchedData.forenoon_meal !== undefined || fetchedData.afternoon_meal !== undefined) {
+                    if (fetchedData.forenoon_meal && fetchedData.afternoon_meal) {
+                        setMealSession('both');
+                    } else if (fetchedData.forenoon_meal) {
+                        setMealSession('forenoon');
+                    } else if (fetchedData.afternoon_meal) {
+                        setMealSession('afternoon');
+                    }
+                }
+
+                if (fetchedData.student_photo_url) {
+                    let photoUrl = fetchedData.student_photo_url;
+                    // Build absolute URL for the stored photo
+                    if (photoUrl && !photoUrl.startsWith('http') && !photoUrl.startsWith('data:')) {
+                        // Use the same origin as the current page to serve uploads
+                        let apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api\/register$/, '').replace(/\/+$/, '');
+                        if (!apiBase) {
+                            apiBase = window.location.origin;
+                        }
+                        // Ensure the path starts with /uploads/
+                        if (!photoUrl.startsWith('/')) photoUrl = '/' + photoUrl;
+                        photoUrl = apiBase + photoUrl;
+                    }
+                    setPhotoDataUrl(photoUrl);
+                    if (photoPreviewRef.current) {
+                        photoPreviewRef.current.src = photoUrl;
+                        photoPreviewRef.current.classList.remove('hidden');
+                        if (uploadPlaceholderRef.current) {
+                            uploadPlaceholderRef.current.classList.add('hidden');
+                        }
+                    }
+                }
+
+
+            } else {
+                setIsAlreadyRegistered(false);
+                setFetchStatusMessage("No existing details found");
+                setTimeout(() => setFetchStatusMessage(""), 3000);
+            }
+        } catch (err) {
+            console.warn("Auto fetch error:", err);
+            setFetchStatusMessage("");
+        } finally {
+            setIsFetchingStudent(false);
+        }
+    };
+
+    const handleDeptNumberInputChange = (e) => {
+        const val = e.target.value.replace(/\D/g, '');
+        setDeptNumber(val);
+        if (val.length === 13) {
+            fetchStudentByDeptNumber(val);
+        } else {
+            setIsAutoFetched(false);
+            setAutoCourse("");
+            setAutoDepartment("");
+            setFetchStatusMessage("");
+            setIsAlreadyRegistered(false);
+            // Reset photo preview when dept number changes
+            setPhotoDataUrl("");
+            if (photoPreviewRef.current) {
+                photoPreviewRef.current.classList.add('hidden');
+                if (uploadPlaceholderRef.current) {
+                    uploadPlaceholderRef.current.classList.remove('hidden');
+                }
+            }
+        }
+    };
+>>>>>>> 8625dbd (major update in reg form and student portal)
 
     const calculateAgeFromIsoDate = (isoStr) => {
         if (!isoStr) return "";
@@ -90,11 +311,6 @@ export default function MealRegistrationForm() {
     const validateMealForm = () => {
         if (!mealFormRef.current?.checkValidity()) {
             mealFormRef.current?.reportValidity();
-            return false;
-        }
-
-        if (!photoInputRef.current?.files.length) {
-            alert('Please attach the student passport photo before previewing and submitting.');
             return false;
         }
 
@@ -511,21 +727,67 @@ export default function MealRegistrationForm() {
                 <form ref={mealFormRef} id="mealForm" action="/api/register" method="POST" encType="multipart/form-data" className="space-y-6" onSubmit={handleFormSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                         <div className="md:col-span-2">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Application Number (If applicable)</label>
-                            <input type="text" id="app_no" name="app_no" placeholder="e.g., RKMV-2026-001" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all" />
+                            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center justify-between">
+                                <span>Department Number (13 Digits) *</span>
+                                {fetchStatusMessage && !isAlreadyRegistered && (
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded transition-all ${fetchStatusMessage.includes('No existing') ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-green-100 text-green-800 border border-green-300'}`}>
+                                        {fetchStatusMessage}
+                                    </span>
+                                )}
+                            </label>
+                            <div className="relative flex items-center">
+                                <input
+                                    type="text"
+                                    id="dept_number"
+                                    name="dept_number"
+                                    value={deptNumber}
+                                    onChange={handleDeptNumberInputChange}
+                                    onBlur={() => fetchStudentByDeptNumber(deptNumber)}
+                                    placeholder="Enter 13-digit Department Number (e.g. 2433010340210)"
+                                    maxLength="13"
+                                    inputMode="numeric"
+                                    required
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all font-sans text-gray-900 font-medium text-base shadow-xs"
+                                />
+                                {isFetchingStudent && (
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                                        <svg className="animate-spin h-5 w-5 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-gray-500 mt-1">Entering an existing 13-digit Department Number will automatically populate student details.</p>
+                            {isAlreadyRegistered && (
+                                <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-lg flex items-start gap-2">
+                                    <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                    <div>
+                                        <p className="text-sm font-bold text-red-800">This Department Number is already registered.</p>
+                                        <p className="text-xs text-red-700 mt-0.5">Each Department Number can only be used once. Please enter a different number to proceed with a new registration.</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <div className="flex flex-col items-center">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2 text-center w-full">Affix Photo *</label>
-                            <div className="w-28 h-36 border-2 border-gray-300 border-dashed rounded bg-gray-50 hover:bg-gray-100 transition-all relative overflow-hidden group">
-                                <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer text-center p-2">
-                                    <div ref={uploadPlaceholderRef} id="upload-placeholder" className="flex flex-col items-center justify-center">
-                                        <svg className="w-6 h-6 mb-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase">Passport Size</p>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2 text-center w-full">Student Photo</label>
+                            <div className="w-28 h-36 border-2 border-amber-300/80 rounded-lg bg-amber-50/50 shadow-xs flex flex-col items-center justify-center overflow-hidden relative">
+                                {photoDataUrl ? (
+                                    <img src={photoDataUrl} alt="Student Photo" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center p-2 text-center">
+                                        <svg className="w-8 h-8 text-amber-500/70 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-tight">Passport Photo</span>
+                                        <span className="text-[9px] text-gray-400 font-medium">(Auto-fetched)</span>
                                     </div>
-                                    <img ref={photoPreviewRef} id="photo-preview" src="#" alt="Preview" className="hidden absolute inset-0 w-full h-full object-cover" />
-                                    <input type="file" ref={photoInputRef} id="student_photo" name="student_photo" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-                                </label>
+                                )}
                             </div>
+                            </div>
+                            <input type="hidden" id="student_photo_url" name="student_photo_url" value={photoDataUrl} />
                         </div>
                     </div>
 
@@ -533,22 +795,35 @@ export default function MealRegistrationForm() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Name of the Student *</label>
-                            <input type="text" id="student_name" name="student_name" required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none" />
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                Name of the Student *
+                            </label>
+                            <input
+                                type="text"
+                                id="student_name"
+                                name="student_name"
+                                required
+                                readOnly={isAutoFetched}
+                                className={`w-full px-4 py-2 border border-gray-300 rounded-md outline-none transition-all ${isAutoFetched ? 'bg-gray-100 text-gray-700 cursor-not-allowed font-medium' : 'bg-white focus:ring-2 focus:ring-amber-500'}`}
+                            />
                         </div>
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Date of Birth *</label>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                Date of Birth *
+                            </label>
                             <div className="relative flex items-center">
                                 <input
                                     type="date"
                                     id="dob_picker"
                                     value={dobDate}
                                     onChange={handleDobChange}
-                                    onClick={(e) => { try { e.target.showPicker(); } catch (err) { } }}
+                                    onClick={(e) => { if (!isAutoFetched) { try { e.target.showPicker(); } catch (err) { } } }}
                                     max={new Date().toISOString().split('T')[0]}
                                     min="1950-01-01"
                                     required
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none font-sans text-gray-800 pr-28 cursor-pointer bg-white [&::-webkit-calendar-picker-indicator]:hidden"
+                                    readOnly={isAutoFetched}
+                                    disabled={isAutoFetched}
+                                    className={`w-full px-4 py-2 border border-gray-300 rounded-md outline-none font-sans text-gray-800 pr-28 transition-all ${isAutoFetched ? 'bg-gray-100 text-gray-700 cursor-not-allowed font-medium pointer-events-none' : 'cursor-pointer bg-white focus:ring-2 focus:ring-amber-500 [&::-webkit-calendar-picker-indicator]:hidden'}`}
                                 />
                                 {calculatedAge !== "" && (
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-1 rounded-md border border-amber-300 shadow-xs pointer-events-none">
@@ -561,8 +836,17 @@ export default function MealRegistrationForm() {
                             <input type="hidden" id="calculated_age_input" name="age" value={calculatedAge} />
                         </div>
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Course *</label>
-                            <select id="course" name="course" required className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                Course *
+                            </label>
+                            <select
+                                id="course"
+                                name={isAutoFetched ? undefined : "course"}
+                                disabled={isAutoFetched}
+                                required
+                                onChange={(e) => setAutoCourse(e.target.value)}
+                                className={`w-full px-4 py-2 border border-gray-300 rounded-md outline-none transition-all ${isAutoFetched ? 'bg-gray-100 text-gray-700 cursor-not-allowed font-medium' : 'bg-white focus:ring-2 focus:ring-amber-500'}`}
+                            >
                                 <option value="">Select Course</option>
                                 <option value="B.Sc. Computer Science">B.Sc</option>
                                 <option value="B.Com">B.Com</option>
@@ -572,10 +856,20 @@ export default function MealRegistrationForm() {
                                 <option value="M.Com">M.Com</option>
                                 <option value="M.A.">M.A.</option>
                             </select>
+                            {isAutoFetched && <input type="hidden" name="course" value={autoCourse || document.getElementById('course')?.value || ''} />}
                         </div>
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Department *</label>
-                            <select id="department" name="department" required className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                Department *
+                            </label>
+                            <select
+                                id="department"
+                                name={isAutoFetched ? undefined : "department"}
+                                disabled={isAutoFetched}
+                                required
+                                onChange={(e) => setAutoDepartment(e.target.value)}
+                                className={`w-full px-4 py-2 border border-gray-300 rounded-md outline-none transition-all ${isAutoFetched ? 'bg-gray-100 text-gray-700 cursor-not-allowed font-medium' : 'bg-white focus:ring-2 focus:ring-amber-500'}`}
+                            >
                                 <option value="">Select Department</option>
                                 <option value="Economics">Economics</option>
                                 <option value="English">English</option>
@@ -591,6 +885,7 @@ export default function MealRegistrationForm() {
                                 <option value="Computer Science">Computer Science</option>
                                 <option value="Commerce">Commerce</option>
                             </select>
+                            {isAutoFetched && <input type="hidden" name="department" value={autoDepartment || document.getElementById('department')?.value || ''} />}
                         </div>
                     </div>
 
@@ -605,18 +900,8 @@ export default function MealRegistrationForm() {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Department Number (13 Digits) *</label>
-                            <input
-                                type="text"
-                                id="dept_number"
-                                name="dept_number"
-                                placeholder="Enter 13-digit Department Number"
-                                maxLength="13"
-                                inputMode="numeric"
-                                onInput={(e) => { e.target.value = e.target.value.replace(/\D/g, ''); }}
-                                required
-                                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none font-sans"
-                            />
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Mobile No. *</label>
+                            <input type="tel" id="mobile_no" name="mobile_no" required inputMode="numeric" maxLength="10" placeholder="10 digit mobile" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none" />
                         </div>
                     </div>
 
@@ -636,14 +921,10 @@ export default function MealRegistrationForm() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">Land Line Contact No.</label>
                             <input type="tel" id="landline" name="landline" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Mobile No. *</label>
-                            <input type="tel" id="mobile_no" name="mobile_no" required inputMode="numeric" maxLength="10" placeholder="10 digit mobile" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 outline-none" />
                         </div>
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">Student Email Address *</label>

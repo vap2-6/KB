@@ -745,26 +745,15 @@ export default function App() {
         showToast("Success: Token Generated", "Secure meal authentication token has been generated successfully!", "success");
         playBeep("success");
       } else {
-        throw new Error("Server error");
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData.error || errData.message || "Failed to issue token.";
+        showToast("Issuance Failed", msg, "error");
+        playBeep("error");
       }
-    } catch (e) {
-      console.warn("Issue Token API error, simulated fallback created", e);
-      // Simulate client local insert for mock/offline view
-      const mockNewToken: Token = {
-        student_reg: currentStudent.reg_no,
-        student_name: currentStudent.name,
-        name: currentStudent.name,
-        token_id: `TOK-${Math.floor(100000 + Math.random() * 900000)}`,
-        meal_type: mealType as any,
-        status: "active",
-        created_at: new Date().toISOString(),
-        issued_by: session?.staffId || "STAFF101"
-      };
-      setTokens(prev => [mockNewToken, ...prev]);
-      setIsIssueModalOpen(false);
-      setCurrentStudent(null);
-      showToast("Success: Token Generated (Simulation)", "Secure meal authentication token has been generated successfully!", "success");
-      playBeep("success");
+    } catch (e: any) {
+      console.warn("Issue Token API error", e);
+      showToast("Connection Error", "Network or server error while generating token.", "error");
+      playBeep("error");
     }
   };
 

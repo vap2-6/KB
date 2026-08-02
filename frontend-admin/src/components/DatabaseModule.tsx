@@ -110,11 +110,14 @@ export default function DatabaseModule({ user, showToast }: DatabaseModuleProps)
       }
 
       const res = await api.get(`/tables/${selectedTable}`, { params });
-      setColumns(res.data.columns);
-      setRows(res.data.rows);
-      setPage(res.data.pagination.page);
-      setTotalPages(res.data.pagination.totalPages);
-      setTotalRecords(res.data.pagination.totalRecords);
+      setColumns(res.data.columns || []);
+      setRows(res.data.rows || []);
+      const pageNum = res.data.pagination?.page ?? res.data.page ?? 1;
+      const totalPagesNum = res.data.pagination?.totalPages ?? res.data.totalPages ?? 1;
+      const totalRecsNum = res.data.pagination?.totalRecords ?? res.data.total ?? (res.data.rows ? res.data.rows.length : 0);
+      setPage(pageNum);
+      setTotalPages(totalPagesNum);
+      setTotalRecords(totalRecsNum);
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Failed to fetch table records', 'error');
     } finally {
