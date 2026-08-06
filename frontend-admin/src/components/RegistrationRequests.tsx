@@ -6,7 +6,6 @@ import MediaLightbox, { LightboxMediaItem } from './MediaLightbox';
 
 interface RegistrationRow {
   registration_id: string;
-  app_no?: string;
   student_name: string;
   dob_age?: string;
   date_of_birth?: string;
@@ -279,7 +278,6 @@ export default function RegistrationRequests({ showToast, onCountChange }: Regis
                           
                           {/* Single-flow Grid */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                            {detailRow('App No', d.app_no || 'N/A')}
                             {detailRow('Date of Birth', d.date_of_birth || d.dob_age || 'N/A')}
                             {detailRow('Age', d.age ? `${d.age} Years` : 'N/A')}
                             {detailRow('Course', d.course || 'N/A')}

@@ -55,6 +55,7 @@ services:
       - ./backend/registration_backend/generated_pdfs:/app/server/generated_pdfs
       - ./frontend-admin/dist:/app/frontend-admin/dist
       - ./frontend-staff/dist:/app/frontend-staff/dist
+      - ./frontend-canteen/dist:/app/frontend-canteen/dist
       - ./frontend-stud/dist:/app/frontend-stud/dist
       - ./frontend-reg/dist:/app/frontend-reg/dist
     networks:

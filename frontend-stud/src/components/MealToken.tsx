@@ -1,5 +1,5 @@
 import React from 'react';
-import { Coffee, Utensils, QrCode, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Coffee, Utensils, QrCode, Clock, CheckCircle, XCircle, Loader2, RefreshCw } from 'lucide-react';
 
 export type TokenStatus = 'none' | 'not_eligible' | 'closed' | 'pending_approval' | 'open' | 'active' | 'claimed' | 'redeemed' | 'expired';
 
@@ -12,9 +12,10 @@ interface MealTokenProps {
   windowStart?: string;
   windowEnd?: string;
   onOpenQr?: () => void;
+  onRegenerate?: () => void;
 }
 
-export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl, theme, windowStart, windowEnd, onOpenQr }: MealTokenProps) {
+export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl, theme, windowStart, windowEnd, onOpenQr, onRegenerate }: MealTokenProps) {
   const isDark = theme === 'black';
 
   const formatTimeLeft = (seconds: number) => {
@@ -24,11 +25,8 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
     return `${m}m ${s < 10 ? '0' : ''}${s}s left`;
   };
 
-  const defaultStart = mealType === 'Breakfast' ? '07:30 AM' : '12:00 PM';
-  const defaultEnd = mealType === 'Breakfast' ? '10:00 AM' : '02:30 PM';
-
-  const startTime = windowStart || defaultStart;
-  const endTime = windowEnd || defaultEnd;
+  const startTime = windowStart || '';
+  const endTime = windowEnd || '';
 
   const fallbackBgClass = mealType === 'Breakfast'
     ? (isDark ? 'bg-gradient-to-br from-zinc-900 to-amber-950/40' : 'bg-gradient-to-br from-white to-amber-50/50')
@@ -108,6 +106,17 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
             <QrCode className="w-4 h-4" />
             <span>OPEN QR CODE</span>
           </button>
+        </div>
+      );
+    }
+
+    if (status === 'expired') {
+      return (
+        <div className="mt-5 pt-4 border-t border-dashed border-zinc-200/50">
+          <div className="w-full py-3.5 px-5 rounded-2xl font-bold text-xs uppercase tracking-wider bg-rose-50 text-rose-600 border border-rose-200/80 flex items-center justify-center gap-2">
+            <XCircle className="w-4 h-4" />
+            <span>TOKEN EXPIRED (STAFF REGENERATION REQUIRED)</span>
+          </div>
         </div>
       );
     }

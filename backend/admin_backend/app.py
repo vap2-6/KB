@@ -279,10 +279,16 @@ def _ensure_tables(conn):
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 meal_type ENUM('forenoon','afternoon') NOT NULL,
                 day_of_week TINYINT NULL, start_time TIME NOT NULL, end_time TIME NOT NULL,
-                grace_minutes INT DEFAULT 15, is_active TINYINT(1) DEFAULT 1,
+                expiry_minutes INT DEFAULT 15, is_active TINYINT(1) DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
+        try:
+            cur.execute("SHOW COLUMNS FROM meal_windows LIKE 'grace_minutes'")
+            if cur.fetchone():
+                cur.execute("ALTER TABLE meal_windows CHANGE COLUMN grace_minutes expiry_minutes INT DEFAULT 15")
+        except Exception:
+            pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS meal_tokens (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -432,7 +438,6 @@ def _sync_approved_registrations_to_student_meals(conn):
                     ) ON DUPLICATE KEY UPDATE
                         username=VALUES(username),
                         email=VALUES(email),
-                        password_hash=VALUES(password_hash),
                         name=VALUES(name),
                         grade_section=VALUES(grade_section),
                         forenoon_meal=VALUES(forenoon_meal),
@@ -487,7 +492,7 @@ def _seed_data(conn):
             cur.execute("""
                 INSERT INTO student_meals (student_id, username, email, password_hash, name, grade_section, forenoon_meal, afternoon_meal, last_served_date, qr_secret, image_url, image_path) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), name=VALUES(name)
+                ON DUPLICATE KEY UPDATE name=VALUES(name)
             """, s)
 
         cur.execute("SET FOREIGN_KEY_CHECKS = 1")
@@ -756,8 +761,7 @@ def _check_active_window(meal_type):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, start_time, end_time, 
-                       COALESCE(expiry_minutes, grace_minutes, 15) as expiry_minutes,
-                       COALESCE(grace_minutes, expiry_minutes, 15) as grace_minutes
+                       expiry_minutes
                 FROM meal_windows
                 WHERE meal_type = %s AND is_active = 1
                   AND (day_of_week IS NULL OR day_of_week = DAYOFWEEK(CURDATE()) - 1)
@@ -855,11 +859,20 @@ def _verify_user_password(plain_pw, stored_hash):
 @admin_bp.route('/system/status', methods=['GET'])
 @admin_bp.route('/api/system/status', methods=['GET'])
 def system_status():
+    students, today_tokens, today_redeemed, active_windows = 0, 0, 0, 0
+    total_tables, total_records, total_imports, total_exports = 0, 0, 0, 0
+    
     try:
         conn = get_db()
-        students, today_tokens, today_redeemed, active_windows = 0, 0, 0, 0
-        total_tables, total_records, total_imports, total_exports = 0, 0, 0, 0
-        
+        if not conn:
+            return jsonify({
+                "status": "OFFLINE",
+                "online": False,
+                "connected": False,
+                "databaseEngine": f"MySQL ({MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE})",
+                "error": "Database connection unavailable"
+            }), 200
+
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
@@ -904,7 +917,11 @@ def system_status():
                     total_exports = cur.fetchone().get('c', 0)
                 except Exception: pass
         finally:
-            conn.close()
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         return jsonify({
             "status": "ONLINE",
@@ -930,7 +947,7 @@ def system_status():
             "connected": False,
             "databaseEngine": f"MySQL ({MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE})",
             "error": str(e)
-        }), 500
+        }), 200
 
 @admin_bp.route('/login', methods=['POST'])
 @admin_bp.route('/auth/login', methods=['POST'])
@@ -1210,13 +1227,34 @@ def get_student_qr_image():
 
 WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 
+def _format_time_str(val, default="07:30"):
+    if val is None or val == '':
+        return default
+    if isinstance(val, datetime.timedelta):
+        total = int(val.total_seconds())
+        h = (total // 3600) % 24
+        m = (total % 3600) // 60
+        return f"{h:02d}:{m:02d}"
+    if isinstance(val, (datetime.time, datetime.datetime)):
+        return val.strftime("%H:%M")
+    s = str(val).strip()
+    parts = s.split(':')
+    if len(parts) >= 2:
+        try:
+            h = int(parts[0])
+            m = int(parts[1])
+            return f"{h:02d}:{m:02d}"
+        except ValueError:
+            pass
+    return default
+
 def _get_meal_config(conn):
     with conn.cursor() as cur:
         # First query meal_windows SQL table if configured
         try:
             cur.execute("""
                 SELECT meal_type, MIN(start_time) as start_t, MAX(end_time) as end_t, 
-                       MAX(COALESCE(expiry_minutes, grace_minutes)) as expiry_m 
+                       MAX(expiry_minutes) as expiry_m 
                 FROM meal_windows WHERE is_active = 1 GROUP BY meal_type
             """)
             rows = cur.fetchall()
@@ -1224,17 +1262,21 @@ def _get_meal_config(conn):
                 res = {}
                 for r in rows:
                     mt = r['meal_type']
-                    st = str(r['start_t'])[:5] if r.get('start_t') else '07:30'
-                    et = str(r['end_t'])[:5] if r.get('end_t') else '10:00'
+                    def_start = "07:30" if mt == 'forenoon' else "11:30"
+                    def_end = "10:00" if mt == 'forenoon' else "19:30"
+                    st = _format_time_str(r['start_t'], def_start)
+                    et = _format_time_str(r['end_t'], def_end)
                     exp = int(r['expiry_m']) if r.get('expiry_m') is not None else 15
                     res[mt] = {"start": st, "end": et, "expiry": exp}
                 
                 cur.execute("SELECT DISTINCT day_of_week FROM meal_windows WHERE is_active = 1")
                 day_rows = cur.fetchall()
                 res['days'] = [d['day_of_week'] for d in day_rows if d.get('day_of_week') is not None]
-                if not res['days']:
-                    res['days'] = [0, 1, 2, 3, 4, 5, 6]
                 if 'forenoon' in res or 'afternoon' in res:
+                    if 'forenoon' not in res:
+                        res['forenoon'] = {"start": "07:30", "end": "10:00", "expiry": 15}
+                    if 'afternoon' not in res:
+                        res['afternoon'] = {"start": "11:30", "end": "19:30", "expiry": 15}
                     return res
         except Exception:
             pass
@@ -1245,11 +1287,13 @@ def _get_meal_config(conn):
         if row and row.get('data'):
             state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
             cfg = state.get('meal_config') or state.get('meal_timings')
-            if cfg:
-                for mt in ('forenoon', 'afternoon'):
-                    if mt in cfg:
-                        exp = cfg[mt].get('expiry', cfg[mt].get('grace', 15))
-                        cfg[mt]['expiry'] = exp
+            if cfg and isinstance(cfg, dict):
+                if 'forenoon' in cfg:
+                    cfg['forenoon']['start'] = _format_time_str(cfg['forenoon'].get('start'), "07:30")
+                    cfg['forenoon']['end'] = _format_time_str(cfg['forenoon'].get('end'), "10:00")
+                if 'afternoon' in cfg:
+                    cfg['afternoon']['start'] = _format_time_str(cfg['afternoon'].get('start'), "11:30")
+                    cfg['afternoon']['end'] = _format_time_str(cfg['afternoon'].get('end'), "19:30")
                 return cfg
         return _default_meal_config()
 
@@ -1263,15 +1307,15 @@ def _default_meal_config():
 def _sync_meal_windows(conn, cfg):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM meal_windows")
-        days = cfg.get('days', [])
+        days = cfg['days']
         for meal_type in ('forenoon', 'afternoon'):
-            m = cfg.get(meal_type, {})
-            start_t = m.get('start', '07:30')
-            end_t = m.get('end', '10:00')
-            expiry = m.get('expiry', m.get('grace', 15))
+            m = cfg[meal_type]
+            start_t = m['start']
+            end_t = m['end']
+            expiry = int(m['expiry'])
             for dow in days:
                 cur.execute(
-                    "INSERT INTO meal_windows (meal_type,day_of_week,start_time,end_time,grace_minutes,is_active) VALUES (%s,%s,%s,%s,%s,1)",
+                    "INSERT INTO meal_windows (meal_type,day_of_week,start_time,end_time,expiry_minutes,is_active) VALUES (%s,%s,%s,%s,%s,1)",
                     (meal_type, dow, start_t, end_t, expiry)
                 )
 
@@ -1293,21 +1337,21 @@ def get_meal_config():
 def update_meal_config():
     try:
         data = request.json or {}
-        days = data.get('days', [0, 1, 2, 3, 4, 5, 6])
-        if not isinstance(days, list) or not all(isinstance(d, int) for d in days):
+        days = data.get('days')
+        if days is None or not isinstance(days, list) or not all(isinstance(d, int) for d in days):
             return jsonify({"error": "days must be a list of integers (0=Mon..6=Sun)"}), 400
         for meal_type in ('forenoon', 'afternoon'):
-            m = data.get(meal_type, {})
-            if not m.get('start') or not m.get('end'):
-                return jsonify({"error": f"{meal_type} requires start and end time"}), 400
+            m = data.get(meal_type)
+            if not isinstance(m, dict) or not str(m.get('start', '')).strip() or not str(m.get('end', '')).strip() or 'expiry' not in m:
+                return jsonify({"error": f"Please enter valid start and end times for {meal_type.capitalize()} (e.g., 07:30)."}), 400
         
-        fn_exp = int(data['forenoon'].get('expiry', data['forenoon'].get('grace', 15)))
-        an_exp = int(data['afternoon'].get('expiry', data['afternoon'].get('grace', 15)))
+        fn_exp = int(data['forenoon']['expiry'])
+        an_exp = int(data['afternoon']['expiry'])
 
         cfg = {
             "days": days,
-            "forenoon": {"start": data['forenoon']['start'], "end": data['forenoon']['end'], "expiry": fn_exp},
-            "afternoon": {"start": data['afternoon']['start'], "end": data['afternoon']['end'], "expiry": an_exp}
+            "forenoon": {"start": str(data['forenoon']['start']).strip(), "end": str(data['forenoon']['end']).strip(), "expiry": fn_exp},
+            "afternoon": {"start": str(data['afternoon']['start']).strip(), "end": str(data['afternoon']['end']).strip(), "expiry": an_exp}
         }
         conn = get_db()
         try:
@@ -1326,15 +1370,17 @@ def update_meal_config():
                     cur.execute("INSERT INTO app_state (id, data) VALUES (1, %s)", (json.dumps(state, ensure_ascii=False),))
                 _sync_meal_windows(conn, cfg)
                 conn.commit()
-        except Exception:
+        except Exception as sql_err:
             conn.rollback()
-            raise
+            logger.error("Error updating meal_config: %s", sql_err)
+            return jsonify({"error": f"Failed to save meal windows: {str(sql_err)}"}), 400
         finally:
             conn.close()
         _log_audit(_get_auditor_username(), 'UPDATE_CONFIG', 'meal_config', f"Updated meal config: {len(days)} days, forenoon {cfg['forenoon']['start']}-{cfg['forenoon']['end']}, afternoon {cfg['afternoon']['start']}-{cfg['afternoon']['end']}")
         return jsonify(cfg)
     except Exception as e:
-        return jsonify({"error": sani(e)}), 500
+        logger.error("Error in update_meal_config: %s", e)
+        return jsonify({"error": str(e) if str(e) else sani(e)}), 400
 
 # Keep the /active endpoint for blueprints
 @admin_bp.route('/meal-windows/active', methods=['GET'])
@@ -1409,10 +1455,16 @@ def scan_student_qr():
                 _log_scan(scanner_id, 'approval_staff', 'student_id_qr', scanned_payload, student_id, None, 'duplicate_meal')
                 return jsonify({"status": "DUPLICATE", "error": "Token already exists for this meal today", "student": student}), 200
         token_uid = _generate_token_uid(meal_type)
-        window_end = datetime.datetime.strptime(str(active_window['end_time']), '%H:%M:%S').time()
-        expiry_dt = datetime.datetime.combine(datetime.datetime.now().date(), window_end)
-        exp_mins = active_window.get('expiry_minutes') or active_window.get('grace_minutes') or 15
-        expiry_dt += datetime.timedelta(minutes=int(exp_mins))
+        now_dt = datetime.datetime.now()
+        exp_mins = max(30, int(active_window.get('expiry_minutes') or 30))
+        token_expiry = now_dt + datetime.timedelta(minutes=exp_mins)
+        try:
+            w_str = str(active_window['end_time'])
+            window_end = datetime.datetime.strptime(w_str, '%H:%M:%S' if len(w_str) == 8 else '%H:%M').time()
+            window_expiry = datetime.datetime.combine(now_dt.date(), window_end) + datetime.timedelta(minutes=exp_mins)
+            expiry_dt = max(token_expiry, window_expiry)
+        except Exception:
+            expiry_dt = token_expiry
         conn2 = get_db()
         try:
             with conn2.cursor() as cur:
@@ -1785,14 +1837,12 @@ def _normalize_registration_row(r):
     student_name = quote_plus(str(r.get('student_name') or r.get('name') or 'Student').strip())
     avatar_url = f"https://ui-avatars.com/api/?name={student_name}&background=random"
 
-    # Search for actual photo file in student_master_img and student_photos
+    # Search for actual photo file in student_master_img
     resolved_photo = None
     possible_exts = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
     search_dirs = [
         (os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_master_img'), 'student_master_img'),
         (os.path.join(os.path.dirname(__file__), 'uploads', 'student_master_img'), 'student_master_img'),
-        (os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_photos'), 'student_photos'),
-        (os.path.join(os.path.dirname(__file__), 'uploads', 'student_photos'), 'student_photos'),
     ]
 
     if dept_no:
@@ -1955,7 +2005,6 @@ def act_on_registration(registration_id):
                             ) ON DUPLICATE KEY UPDATE
                                 username=VALUES(username),
                                 email=VALUES(email),
-                                password_hash=VALUES(password_hash),
                                 name=VALUES(name),
                                 grade_section=VALUES(grade_section),
                                 degree_year=VALUES(degree_year),

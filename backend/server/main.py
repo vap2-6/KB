@@ -20,9 +20,11 @@ sys.path.append(BASE_DIR)
 sys.path.append(PARENT_DIR)
 sys.path.append(os.path.join(BASE_DIR, 'admin_backend'))
 sys.path.append(os.path.join(BASE_DIR, 'backend_staff'))
+sys.path.append(os.path.join(BASE_DIR, 'backend_canteen'))
 sys.path.append(os.path.join(BASE_DIR, 'registration_backend'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'admin_backend'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'backend_staff'))
+sys.path.append(os.path.join(PROJECT_ROOT, 'backend_canteen'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'registration_backend'))
 
 from flask import Flask, jsonify
@@ -36,6 +38,7 @@ from admin_backend.extensions import db
 
 from admin_backend.app import admin_bp
 from backend_staff.app import staff_bp
+from backend_canteen.app import canteen_bp
 from registration_backend.app import reg_bp 
 from blueprints.student_api import student_bp
 
@@ -79,7 +82,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Sets 16MB file limit for 
 limiter = Limiter(get_remote_address, app=app, default_limits=["50000 per day", "10000 per hour"])
 
 # Ensure defensive server file buffer directories exist on disk
-UPLOAD_SUBDIRS = ['student_photos', 'student_signatures', 'income_proofs', 'student_master_img']
+UPLOAD_SUBDIRS = ['student_signatures', 'income_proofs', 'student_master_img']
 active_uploads_dir = os.path.join(BASE_DIR, 'registration_backend', 'uploads')
 for sub in UPLOAD_SUBDIRS:
     os.makedirs(os.path.join(active_uploads_dir, sub), exist_ok=True)
@@ -97,9 +100,9 @@ with app.app_context():
         print("--- DB INIT WARNING ---:", e, flush=True)
 
 # 6. Mount the Blueprints to their new shared web prefixes
-# 6. Mount the Blueprints to their new shared web prefixes
 app.register_blueprint(admin_bp, url_prefix='/api/admin')
 app.register_blueprint(staff_bp, url_prefix='/api/staff')
+app.register_blueprint(canteen_bp, url_prefix='/api/canteen')
 app.register_blueprint(reg_bp, url_prefix='/api/register')
 app.register_blueprint(student_bp, url_prefix='/api/student')
 
@@ -140,8 +143,10 @@ def configure_frontend_route(prefix, relative_dist_path):
 configure_frontend_route('/admin', 'frontend-admin/dist')
 configure_frontend_route('/admin-login', 'frontend-admin/dist')
 configure_frontend_route('/staff', 'frontend-staff/dist')
+configure_frontend_route('/canteen', 'frontend-canteen/dist')
 configure_frontend_route('/student', 'frontend-stud/dist')
 configure_frontend_route('/register', 'frontend-reg/dist')
+
 
 # Convenient Redirect Aliases for manual URL typing
 @app.route('/db')
@@ -152,6 +157,8 @@ def db_redirect():
 
 @app.route('/login')
 @app.route('/signin')
+@app.route('/canteen-login')
+@app.route('/staff-login')
 def login_redirect():
     return redirect('/admin-login/')
 
@@ -410,6 +417,16 @@ LANDING_HTML = """
                 <span class="badge">Dining Operations</span>
             </a>
 
+            <a href="/canteen/" class="card">
+                <div class="card-icon">🍱</div>
+                <div>
+                    <h2>Canteen Portal</h2>
+                    <p class="card-desc">Canteen counter redemption terminal, meal distribution scanning, and real-time claim logs.</p>
+                </div>
+                <span class="badge">Canteen Counter</span>
+            </a>
+
+
             <a href="/student/" class="card">
                 <div class="card-icon">🎓</div>
                 <div>
@@ -437,9 +454,15 @@ LANDING_HTML = """
 </html>
 """
 
+from flask import make_response
+
 @app.route('/')
 def home():
-    return render_template_string(LANDING_HTML)
+    resp = make_response(render_template_string(LANDING_HTML))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 if __name__ == '__main__':
     # Starts your single backend engine on port 5050 (or PORT env var)

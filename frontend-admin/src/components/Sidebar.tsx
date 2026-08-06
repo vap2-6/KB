@@ -16,6 +16,7 @@ import {
   Send,
   Settings,
   ChevronDown,
+  Users,
   Users2,
   ChefHat
 } from 'lucide-react';
@@ -37,6 +38,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
   const menuItems = [
     { id: 'dashboard', label: 'Meal Dashboard', icon: LayoutDashboard },
     { id: 'requests', label: 'Registration Requests', icon: Bell, badge: pendingRequestsCount },
+    { id: 'student-details', label: 'Student Details', icon: Users },
     { id: 'token-monitor', label: 'Token & Distribution', icon: Activity },
     { id: 'communications', label: 'Communications', icon: Send },
   ];

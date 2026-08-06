@@ -142,7 +142,7 @@ if ! mysql_probe; then
 fi
 echo "MySQL connection verified."
 
-for frontend_dir in frontend-admin frontend-staff frontend-stud frontend-reg; do
+for frontend_dir in frontend-admin frontend-staff frontend-canteen frontend-stud frontend-reg; do
   echo
   echo "── Building $frontend_dir ──"
   cd "$PROJECT_ROOT/$frontend_dir"

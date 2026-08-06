@@ -25,16 +25,38 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const formatHHMM = (val?: string, fallback: string = '07:30') => {
+    if (!val) return fallback;
+    const parts = val.trim().split(':');
+    if (parts.length >= 2) {
+      const h = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      return `${h}:${m}`;
+    }
+    return fallback;
+  };
+
   useEffect(() => {
     (async () => {
       try {
         // Use /meal-config which is backed by app_state + meal_windows table
         const res = await api.get('/meal-config');
         const data = res.data || {};
+        const fn = data.forenoon || {};
+        const an = data.afternoon || {};
+
         setConfig({
           days: data.days ?? DEFAULT_MEAL_CONFIG.days,
-          forenoon: { ...DEFAULT_MEAL_CONFIG.forenoon, ...data.forenoon },
-          afternoon: { ...DEFAULT_MEAL_CONFIG.afternoon, ...data.afternoon }
+          forenoon: {
+            start: formatHHMM(fn.start, '07:30'),
+            end: formatHHMM(fn.end, '10:00'),
+            expiry: fn.expiry ?? 15
+          },
+          afternoon: {
+            start: formatHHMM(an.start, '11:30'),
+            end: formatHHMM(an.end, '19:30'),
+            expiry: an.expiry ?? 15
+          }
         });
       } catch {
         // Fallback to default configuration if API request fails
@@ -59,6 +81,15 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
       showToast('Select at least one serving day', 'error');
       return;
     }
+    if (!config.forenoon.start || !config.forenoon.end) {
+      showToast('Please set both Start and End times for Forenoon (Breakfast)', 'error');
+      return;
+    }
+    if (!config.afternoon.start || !config.afternoon.end) {
+      showToast('Please set both Start and End times for Afternoon (Lunch)', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       // PUT /meal-config syncs both app_state and the meal_windows table

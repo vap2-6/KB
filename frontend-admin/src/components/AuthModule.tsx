@@ -98,7 +98,11 @@ export default function AuthModule({ onLoginSuccess, showToast }: AuthModuleProp
         setPassword('');
         onLoginSuccess(responseData.user, responseData.token);
         window.location.href = '/admin/'; // Keep relative path admin routing logic
-      } else if (role === 'approval_staff' || role === 'canteen_staff' || role === 'staff') {
+      } else if (role === 'canteen_staff') {
+        const token = responseData.token;
+        const userJson = JSON.stringify(responseData.user);
+        window.location.href = `/canteen/?token=${encodeURIComponent(token)}&user=${encodeURIComponent(userJson)}`;
+      } else if (role === 'approval_staff' || role === 'staff') {
         const token = responseData.token;
         const userJson = JSON.stringify(responseData.user);
         window.location.href = `/staff/?token=${encodeURIComponent(token)}&user=${encodeURIComponent(userJson)}`;

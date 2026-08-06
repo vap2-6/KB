@@ -561,49 +561,52 @@ def fetch_student_by_dept_number():
                         except Exception:
                             continue
 
-                if found_student:
-                    # Also check photo field from app_state match if not present
-                    photo_val = (found_student.get('student_photo_url') or found_student.get('photo_url') or 
-                                 found_student.get('image_url') or found_student.get('image_path') or 
-                                 found_student.get('photo_path') or found_student.get('img_path') or 
-                                 found_student.get('photo') or found_student.get('image'))
-                    
-                    resolved_photo_url = None
-                    if photo_val and str(photo_val).strip():
-                        p_str = str(photo_val).strip()
-                        if p_str.startswith('http://') or p_str.startswith('https://') or p_str.startswith('data:'):
-                            resolved_photo_url = p_str
-                        else:
-                            if not p_str.startswith('/'):
-                                p_str = '/' + p_str
-                            if not p_str.startswith('/uploads/'):
-                                p_str = '/uploads/' + p_str.lstrip('/')
-                            resolved_photo_url = p_str
-                    else:
-                        # Auto-detect image file on disk in student_master_img or student_photos
-                        possible_subdirs = ['student_master_img', 'student_photos']
-                        possible_exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-                        search_bases = [
-                            os.path.join(BASE_DIR, 'registration_backend', 'uploads'),
-                            os.path.join(BASE_DIR, 'uploads'),
-                            UPLOAD_FOLDER
-                        ]
-                        for sub in possible_subdirs:
-                            for ext in possible_exts:
-                                fname = f"{dept_number}{ext}"
-                                for base in search_bases:
-                                    fpath = os.path.join(base, sub, fname)
-                                    if os.path.exists(fpath):
-                                        resolved_photo_url = f"/uploads/{sub}/{fname}"
-                                        break
-                                if resolved_photo_url:
-                                    break
-                            if resolved_photo_url:
+                # Auto-detect image file on disk in student_master_img by dept_number / roll_no
+                disk_photo_url = None
+                possible_subdirs = ['student_master_img']
+                possible_exts = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
+                search_bases = [
+                    os.path.join(BASE_DIR, 'registration_backend', 'uploads'),
+                    os.path.join(BASE_DIR, 'uploads'),
+                    UPLOAD_FOLDER,
+                    STUDENT_MASTER_IMG_FOLDER
+                ]
+                for sub in possible_subdirs:
+                    for ext in possible_exts:
+                        fname = f"{dept_number}{ext}"
+                        for base in search_bases:
+                            fpath = os.path.join(base, sub, fname) if not base.endswith(sub) else os.path.join(base, fname)
+                            if os.path.exists(fpath):
+                                disk_photo_url = f"/uploads/{sub}/{fname}"
                                 break
+                        if disk_photo_url:
+                            break
+                    if disk_photo_url:
+                        break
 
-                    if resolved_photo_url:
-                        found_student['student_photo_url'] = resolved_photo_url
+                if not found_student and disk_photo_url:
+                    found_student = {
+                        "student_photo_url": disk_photo_url
+                    }
+                elif found_student:
+                    if disk_photo_url:
+                        found_student['student_photo_url'] = disk_photo_url
+                    elif not found_student.get('student_photo_url'):
+                        photo_val = (found_student.get('photo_url') or found_student.get('image_url') or 
+                                     found_student.get('image_path') or found_student.get('photo_path') or 
+                                     found_student.get('img_path') or found_student.get('photo') or found_student.get('image'))
+                        if photo_val and str(photo_val).strip():
+                            p_str = str(photo_val).strip()
+                            if p_str.startswith('http://') or p_str.startswith('https://') or p_str.startswith('data:'):
+                                found_student['student_photo_url'] = p_str
+                            else:
+                                if not p_str.startswith('/'):
+                                    p_str = '/' + p_str
+                                if not p_str.startswith('/uploads/'):
+                                    p_str = '/uploads/' + p_str.lstrip('/')
+                                found_student['student_photo_url'] = p_str
 
+                if found_student:
                     cleaned_student = {k: v for k, v in found_student.items() if v is not None}
                     return jsonify({
                         "already_registered": False,
@@ -832,8 +835,10 @@ def register_student():
             income_rel_path = f"/uploads/income_proofs/{safe_name}"
 
         # 3. Define unique filename and destination path for the PDF
-        filename = f"Meal_Application_{student_name.replace(' ', '_')}.pdf"
+        student_name_clean = secure_filename(str(student_name or 'Student')).strip().replace(' ', '_') or 'Student'
+        filename = f"Meal_Application_{student_name_clean}.pdf"
         local_pdf_path = os.path.join(PDF_FOLDER, filename)
+
 
         # 4. Generate and compile the PDF design layout
         doc = SimpleDocTemplate(local_pdf_path, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
@@ -892,8 +897,7 @@ def register_student():
                 photo_element = Paragraph("[ Photo unavailable ]", val_style)
 
         data_rows = [
-            [Paragraph("Application Number", label_style), Paragraph(f":  {app_no}", val_style), photo_element],
-            [Paragraph("Name of the Student", label_style), Paragraph(f":  {student_name}", val_style), ""],
+            [Paragraph("Name of the Student", label_style), Paragraph(f":  {student_name}", val_style), photo_element],
             [Paragraph("Date of Birth", label_style), Paragraph(f":  {dob_age}", val_style), ""],
             [Paragraph("Course", label_style), Paragraph(f":  {course}", val_style), ""],
             [Paragraph("Department", label_style), Paragraph(f":  {department}", val_style), ""],

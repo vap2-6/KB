@@ -15,6 +15,7 @@ export default function Header({ currentTab, systemStatus, sidebarOpen, setSideb
   const titles: Record<string, string> = {
     dashboard: 'RKMVC Student Dining Dashboard',
     requests: 'Registration Requests',
+    'student-details': 'RKMVC Student Details & Roster Management',
     database: 'RKMVC Hostel & Student Roster',
     'meal-windows': 'Meal Windows Management',
     'token-monitor': 'Token Monitoring & Distribution',

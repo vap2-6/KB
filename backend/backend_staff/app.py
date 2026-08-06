@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 import hmac as _hmac
 import hashlib
 import base64
@@ -85,29 +86,46 @@ def get_db_connection():
 def map_db_student_to_frontend(db_student):
     if not db_student:
         return None
-    
+
     grade = db_student.get('grade_section') or 'N/A'
-    year = 'N/A'
-    dept = 'N/A'
-    
+    degree_yr = db_student.get('degree_year') or db_student.get('year') or ''
+
+    dept = grade
+    year = f"{degree_yr} Year" if degree_yr and not str(degree_yr).endswith('Year') else (degree_yr or 'Enrolled')
+
     if ' - ' in grade:
         parts = grade.split(' - ', 1)
-        year = parts[0].strip()
-        dept = parts[1].strip()
-    elif ',' in grade:
-        parts = grade.split(',', 1)
-        year = parts[0].strip()
-        dept = parts[1].strip()
-    else:
-        year = grade
-        dept = 'N/A'
-        
+        dept = grade
+        if not degree_yr:
+            year = 'Enrolled'
+
+    sid = db_student.get('student_id')
+    raw_img = db_student.get('image_url') or db_student.get('image_path') or db_student.get('student_image_path')
+    
+    img = None
+    if raw_img and (raw_img.startswith('http') or raw_img.startswith('/')):
+        img = raw_img
+    elif raw_img:
+        img = f"/uploads/student_master_img/{raw_img}" if not raw_img.startswith('uploads/') else f"/{raw_img}"
+    
+    if not img and sid:
+        # Check master img directory for <sid>.jpeg, <sid>.jpg, <sid>.png
+        master_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_master_img'))
+        if os.path.exists(master_dir):
+            for ext in ['.jpeg', '.jpg', '.png']:
+                if os.path.exists(os.path.join(master_dir, f"{sid}{ext}")):
+                    img = f"/uploads/student_master_img/{sid}{ext}"
+                    break
+    
+    if not img:
+        img = f"https://ui-avatars.com/api/?name={quote_plus(str(db_student.get('name') or sid))}&background=FA9632&color=fff"
+
     return {
-        'reg_no': db_student.get('student_id'),
+        'reg_no': sid,
         'name': db_student.get('name') or db_student.get('display_name') or db_student.get('username') or 'Unknown Student',
         'year': year,
         'department': dept,
-        'image_url': db_student.get('image_url') or f"https://ui-avatars.com/api/?name={db_student.get('student_id')}&background=random",
+        'image_url': img,
         'forenoon_meal': bool(db_student.get('forenoon_meal', 1)),
         'afternoon_meal': bool(db_student.get('afternoon_meal', 1))
     }
@@ -159,6 +177,14 @@ def map_db_token_to_frontend(db_token):
         'Student'
     )
 
+    exp_val = db_token.get('expiry_time') or db_token.get('expires_at')
+    if isinstance(exp_val, datetime):
+        expires_at_str = exp_val.isoformat()
+    elif exp_val:
+        expires_at_str = str(exp_val).replace(' ', 'T')
+    else:
+        expires_at_str = ''
+
     return {
         'student_reg': db_token.get('student_id'),
         'student_name': student_name,
@@ -168,7 +194,8 @@ def map_db_token_to_frontend(db_token):
         'status': status_fe,
         'created_at': created_at_str,
         'generated_at': generated_at_str,
-        'expires_at': str(db_token.get('expires_at') or db_token.get('expiry_time') or ''),
+        'expires_at': expires_at_str,
+        'expiry_time': expires_at_str,
         'issued_by': db_token.get('scanned_by'),
         'processed_by': db_token.get('approved_by') or db_token.get('redeemed_by')
     }
@@ -240,56 +267,64 @@ def get_tokens():
     except Exception as e:
         return jsonify([]), 200
 
+def _find_token_and_student(cursor, search_ids, decoded_token_uid=None, decoded_student_id=None):
+    db_token = None
+    db_student = None
+
+    # Priority 1: Match by token_uid explicitly
+    token_uids_to_try = list(dict.fromkeys(filter(None, [decoded_token_uid] + search_ids)))
+    for tu in token_uids_to_try:
+        cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
+        db_token = cursor.fetchone()
+        if db_token:
+            break
+
+    # Priority 2: Match student's active/valid token issued TODAY
+    if not db_token:
+        student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))
+        for sid in student_ids_to_try:
+            cursor.execute("""
+                SELECT * FROM meal_tokens
+                WHERE student_id = %s AND DATE(created_at) = CURDATE()
+                  AND status NOT IN ('expired', 'rejected')
+                ORDER BY created_at DESC LIMIT 1
+            """, (sid,))
+            db_token = cursor.fetchone()
+            if db_token:
+                break
+
+    # Fetch student meal profile
+    if db_token:
+        cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (db_token['student_id'],))
+        db_student = cursor.fetchone()
+    else:
+        for sid in search_ids:
+            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
+            db_student = cursor.fetchone()
+            if db_student:
+                break
+
+    return db_token, db_student
+
 @staff_bp.route('/tokens/<token_id>', methods=['GET'])
 @staff_bp.route('/api/tokens/<token_id>', methods=['GET'])
 def verify_token(token_id):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        # First try to decode as a signed QR payload
         qr_data, qr_err = _decode_qr_payload(token_id)
 
-        # Extract meaningful IDs from the decoded payload
-        decoded_token_uid = None
-        decoded_student_id = None
-        if qr_data:
-            decoded_token_uid = qr_data.get('tu')          # token QR
-            decoded_student_id = qr_data.get('sid')        # student or token QR
-            if not decoded_student_id and not decoded_token_uid:
-                decoded_student_id = qr_data.get('_raw')   # plain ID fallback
+        decoded_token_uid = qr_data.get('tu') if qr_data else None
+        decoded_student_id = qr_data.get('sid') if qr_data else None
+        if qr_data and not decoded_student_id and not decoded_token_uid:
+            decoded_student_id = qr_data.get('_raw')
 
-        # Build search list: [decoded_token_uid, decoded_student_id, raw token_id]
-        search_ids = list(dict.fromkeys(filter(None, [
-            decoded_token_uid, decoded_student_id, token_id
-        ])))
-
-        db_token = None
-        db_student = None
-
-        for sid in search_ids:
-            cursor.execute("""
-                SELECT * FROM meal_tokens
-                WHERE token_uid = %s OR student_id = %s
-                ORDER BY created_at DESC LIMIT 1
-            """, (sid, sid))
-            db_token = cursor.fetchone()
-            if db_token:
-                break
-
-        if db_token:
-            student_id = db_token['student_id']
-            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (student_id,))
-            db_student = cursor.fetchone()
-        else:
-            # Fallback: search student_meals
-            for sid in search_ids:
-                cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
-                db_student = cursor.fetchone()
-                if db_student:
-                    break
+        search_ids = list(dict.fromkeys(filter(None, [decoded_token_uid, decoded_student_id, token_id])))
+        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
+
 
         if not db_token and not db_student:
             return jsonify({'error': 'Token or Student not found in database'}), 404
@@ -425,17 +460,20 @@ def issue_token():
         # Query active window for expiration calculation
         cursor.execute("SELECT * FROM meal_windows WHERE meal_type = %s AND is_active = 1 LIMIT 1", (meal_type_db,))
         active_window = cursor.fetchone()
+        exp_m = max(30, int(active_window.get('expiry_minutes') or 30)) if active_window else 30
+        now_dt = datetime.now()
+        token_expiry = now_dt + dt_timedelta(minutes=exp_m)
         if active_window and active_window.get('end_time'):
-            w_str = str(active_window['end_time'])
             try:
+                w_str = str(active_window['end_time'])
                 w_end = datetime.strptime(w_str, '%H:%M:%S' if len(w_str) == 8 else '%H:%M').time()
+                window_expiry = datetime.combine(now_dt.date(), w_end) + dt_timedelta(minutes=exp_m)
+                expiry_dt = max(token_expiry, window_expiry)
             except Exception:
-                w_end = dt_time(14, 30) if meal_type_db == 'afternoon' else dt_time(10, 0)
-            exp_m = active_window.get('expiry_minutes') or active_window.get('grace_minutes') or 15
-            expiry_dt = datetime.combine(datetime.now().date(), w_end) + dt_timedelta(minutes=int(exp_m))
+                expiry_dt = token_expiry
         else:
-            w_end = dt_time(14, 30) if meal_type_db == 'afternoon' else dt_time(10, 0)
-            expiry_dt = datetime.combine(datetime.now().date(), w_end) + dt_timedelta(minutes=15)
+            expiry_dt = token_expiry
+
             
         # Create fresh active token (Reactivates token for student if expired)
         cursor.execute("""
@@ -483,12 +521,7 @@ def update_token(token_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        token = None
-        for sid in search_ids:
-            cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s OR student_id = %s ORDER BY created_at DESC LIMIT 1", (sid, sid))
-            token = cursor.fetchone()
-            if token:
-                break
+        token, _ = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         if not token:
             cursor.close()
@@ -512,11 +545,6 @@ def update_token(token_id):
             INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
             VALUES (%s, 'canteen_staff', 'token_qr', %s, %s, %s, %s, %s)
         """, (staff_id, token_id, token['student_id'], token['token_uid'], result_audit, f'Token status updated to {status_db}'))
-<<<<<<< HEAD
-
-=======
-        
->>>>>>> 8625dbd (major update in reg form and student portal)
         conn.commit()
         cursor.close()
         conn.close()
@@ -559,31 +587,11 @@ def scan_qr():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        db_token = None
-        db_student = None
-
-        for sid in search_ids:
-            cursor.execute("""
-                SELECT * FROM meal_tokens
-                WHERE token_uid = %s OR student_id = %s
-                ORDER BY created_at DESC LIMIT 1
-            """, (sid, sid))
-            db_token = cursor.fetchone()
-            if db_token:
-                break
-
-        if db_token:
-            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (db_token['student_id'],))
-            db_student = cursor.fetchone()
-        else:
-            for sid in search_ids:
-                cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
-                db_student = cursor.fetchone()
-                if db_student:
-                    break
+        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
+
 
         if not db_token and not db_student:
             return jsonify({'error': f'No student or token found for scanned code'}), 404

@@ -10,11 +10,10 @@ export default function MealRegistrationForm() {
     const [dobDate, setDobDate] = useState("");
     const [dobInput, setDobInput] = useState("");
     const [calculatedAge, setCalculatedAge] = useState("");
-<<<<<<< HEAD
-=======
     const [deptNumber, setDeptNumber] = useState("");
     const [isFetchingStudent, setIsFetchingStudent] = useState(false);
     const [fetchStatusMessage, setFetchStatusMessage] = useState("");
+    const [isAlreadyRegistered, setIsAlreadyRegistered] = useState(false);
     const [mealSession, setMealSession] = useState("");
     const [isAutoFetched, setIsAutoFetched] = useState(false);
     const [autoCourse, setAutoCourse] = useState("");
@@ -230,7 +229,6 @@ export default function MealRegistrationForm() {
             }
         }
     };
->>>>>>> 8625dbd (major update in reg form and student portal)
 
     const calculateAgeFromIsoDate = (isoStr) => {
         if (!isoStr) return "";
@@ -363,7 +361,7 @@ export default function MealRegistrationForm() {
         return true;
     };
 
-    const checkDuplicateRegistration = async (deptNumber, mobileNo, appNo) => {
+    const checkDuplicateRegistration = async (deptNumber, mobileNo) => {
         try {
             let base = import.meta.env.VITE_API_BASE_URL || '/api/register';
             if (base.endsWith('/api/register')) {
@@ -372,9 +370,9 @@ export default function MealRegistrationForm() {
             base = base.replace(/\/+$/, '');
 
             const candidateUrls = [
-                `${base}/api/register/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}&app_no=${encodeURIComponent(appNo || '')}`,
-                `${base}/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}&app_no=${encodeURIComponent(appNo || '')}`,
-                `/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}&app_no=${encodeURIComponent(appNo || '')}`
+                `${base}/api/register/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}`,
+                `${base}/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}`,
+                `/api/register/check?dept=${encodeURIComponent(deptNumber || '')}&mobile=${encodeURIComponent(mobileNo || '')}`
             ];
 
             for (const checkUrl of candidateUrls) {
@@ -399,10 +397,6 @@ export default function MealRegistrationForm() {
     const populateAndShowModal = () => {
         const modalPhotoView = document.getElementById('modal-photo-view');
         if (modalPhotoView) modalPhotoView.src = photoDataUrl || '#';
-
-        const appNo = document.getElementById('app_no');
-        const pAppNo = document.getElementById('p-app-no');
-        if (pAppNo) pAppNo.innerText = appNo?.value || 'N/A';
 
         const studentName = document.getElementById('student_name');
         const pName = document.getElementById('p-name');
@@ -512,7 +506,6 @@ export default function MealRegistrationForm() {
 
         const deptNumber = document.getElementById('dept_number')?.value.trim();
         const mobileNo = document.getElementById('mobile_no')?.value.trim();
-        const appNo = document.getElementById('app_no')?.value.trim();
 
         const reviewBtn = document.getElementById('reviewBtn');
         if (reviewBtn) {
@@ -521,7 +514,7 @@ export default function MealRegistrationForm() {
         }
 
         try {
-            const dupResult = await checkDuplicateRegistration(deptNumber, mobileNo, appNo);
+            const dupResult = await checkDuplicateRegistration(deptNumber, mobileNo);
             if (dupResult && dupResult.exists) {
                 setDuplicateMessage(dupResult.error || "Application already submitted");
                 setDuplicateTag(dupResult.tag || "use another registration number for a new form");
@@ -585,7 +578,6 @@ export default function MealRegistrationForm() {
 
         const deptNumber = document.getElementById('dept_number')?.value.trim();
         const mobileNo = document.getElementById('mobile_no')?.value.trim();
-        const appNo = document.getElementById('app_no')?.value.trim();
 
         const confirmSubmitBtn = e.currentTarget;
         confirmSubmitBtn.disabled = true;
@@ -593,7 +585,7 @@ export default function MealRegistrationForm() {
         confirmSubmitBtn.innerText = 'Submitting...';
 
         try {
-            const dupResult = await checkDuplicateRegistration(deptNumber, mobileNo, appNo);
+            const dupResult = await checkDuplicateRegistration(deptNumber, mobileNo);
             if (dupResult && dupResult.exists) {
                 if (previewModalRef.current) {
                     previewModalRef.current.classList.add('hidden');
@@ -775,7 +767,7 @@ export default function MealRegistrationForm() {
                             <label className="block text-sm font-semibold text-gray-700 mb-2 text-center w-full">Student Photo</label>
                             <div className="w-28 h-36 border-2 border-amber-300/80 rounded-lg bg-amber-50/50 shadow-xs flex flex-col items-center justify-center overflow-hidden relative">
                                 {photoDataUrl ? (
-                                    <img src={photoDataUrl} alt="Student Photo" className="w-full h-full object-cover" />
+                                    <img src={photoDataUrl} alt="Student Photo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                     <div className="flex flex-col items-center justify-center p-2 text-center">
                                         <svg className="w-8 h-8 text-amber-500/70 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -785,7 +777,6 @@ export default function MealRegistrationForm() {
                                         <span className="text-[9px] text-gray-400 font-medium">(Auto-fetched)</span>
                                     </div>
                                 )}
-                            </div>
                             </div>
                             <input type="hidden" id="student_photo_url" name="student_photo_url" value={photoDataUrl} />
                         </div>
@@ -937,18 +928,48 @@ export default function MealRegistrationForm() {
                             <label className="block text-sm font-semibold text-gray-700 mb-2">Meal Session Required *</label>
                             <div className="flex flex-col sm:flex-row gap-4">
                                 <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-amber-50 transition-colors">
-                                    <input type="checkbox" id="forenoon_meal" name="forenoon_meal" className="w-4 h-4 accent-amber-700" />
+                                    <input 
+                                        type="radio" 
+                                        id="forenoon_meal" 
+                                        name="meal_session" 
+                                        value="forenoon" 
+                                        checked={mealSession === 'forenoon'}
+                                        onChange={() => setMealSession('forenoon')}
+                                        className="w-4 h-4 accent-amber-700 cursor-pointer" 
+                                        required 
+                                    />
                                     <span className="text-sm font-medium text-gray-700">Forenoon Meal</span>
                                 </label>
                                 <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-amber-50 transition-colors">
-                                    <input type="checkbox" id="afternoon_meal" name="afternoon_meal" className="w-4 h-4 accent-amber-700" />
+                                    <input 
+                                        type="radio" 
+                                        id="afternoon_meal" 
+                                        name="meal_session" 
+                                        value="afternoon" 
+                                        checked={mealSession === 'afternoon'}
+                                        onChange={() => setMealSession('afternoon')}
+                                        className="w-4 h-4 accent-amber-700 cursor-pointer" 
+                                        required 
+                                    />
                                     <span className="text-sm font-medium text-gray-700">Afternoon Meal</span>
                                 </label>
                                 <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-amber-50 transition-colors">
-                                    <input type="checkbox" id="both_meal" name="both_meal" className="w-4 h-4 accent-amber-700" />
+                                    <input 
+                                        type="radio" 
+                                        id="both_meal" 
+                                        name="meal_session" 
+                                        value="both" 
+                                        checked={mealSession === 'both'}
+                                        onChange={() => setMealSession('both')}
+                                        className="w-4 h-4 accent-amber-700 cursor-pointer" 
+                                        required 
+                                    />
                                     <span className="text-sm font-medium text-gray-700">Both Meals</span>
                                 </label>
                             </div>
+                            {mealSession === 'forenoon' && <input type="hidden" name="forenoon_meal" value="on" />}
+                            {mealSession === 'afternoon' && <input type="hidden" name="afternoon_meal" value="on" />}
+                            {mealSession === 'both' && <input type="hidden" name="both_meal" value="on" />}
                         </div>
                     </div>
 
@@ -1042,10 +1063,9 @@ export default function MealRegistrationForm() {
                                 <img id="modal-photo-view" src="#" alt="Student Passport" className="w-full h-full object-cover" />
                             </div>
                             <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700">
-                                <p><strong>App No:</strong> <span id="p-app-no"></span></p>
                                 <p><strong>Student Name:</strong> <span id="p-name" className="font-semibold text-amber-900"></span></p>
-                                <p><strong>DOB & Age:</strong> <span id="p-dob"></span></p>
                                 <p><strong>Dept No / Roll:</strong> <span id="p-dept-no"></span></p>
+                                <p><strong>DOB & Age:</strong> <span id="p-dob"></span></p>
                             </div>
                         </div>
 

@@ -251,23 +251,39 @@ export default function App() {
   };
 
   const apiFetch = (url: string, init?: RequestInit) => {
-    const envUrl = import.meta.env.VITE_API_BASE_URL;
-    let baseUrl = '/api/staff';
-    if (envUrl) {
-      const clean = envUrl.replace(/\/+$/, '');
-      baseUrl = clean.endsWith('/api/staff') ? clean : `${clean}/api/staff`;
+    if (url.startsWith('http')) {
+      return fetch(url, init);
     }
-    const path = url.startsWith('/') ? url : `/${url}`;
-    const fullUrl = url.startsWith('http') ? url : `${baseUrl}${path}`;
-    
-    // Inject Authorization header & bypass Ngrok warning interstitial
+    const rawEnv = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+    let hostBase = '';
+    if (rawEnv.startsWith('http')) {
+      try {
+        const u = new URL(rawEnv);
+        hostBase = u.origin;
+      } catch (_) {
+        hostBase = rawEnv.replace(/\/api.*$/, '');
+      }
+    }
+
+    let cleanPath = url;
+    if (cleanPath.startsWith('/api/canteen/')) {
+      cleanPath = cleanPath.substring(12);
+    } else if (cleanPath.startsWith('/api/staff/')) {
+      cleanPath = cleanPath.substring(10);
+    } else if (cleanPath.startsWith('/api/')) {
+      cleanPath = cleanPath.substring(4);
+    }
+    cleanPath = cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`;
+
+    const fullUrl = `${hostBase}/api/canteen${cleanPath}`;
+
     const token = localStorage.getItem("token");
     const headers = new Headers(init?.headers || {});
     headers.set("ngrok-skip-browser-warning", "69420");
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-    
+
     return fetch(fullUrl, {
       ...init,
       headers
@@ -651,13 +667,6 @@ export default function App() {
             playBeep("warning");
             return;
           } else if (st === 'rejected' || st === 'expired') {
-            if (tokenData.student) {
-              setCurrentStudent(tokenData.student);
-              setIsIssueModalOpen(true);
-              playBeep("info");
-              showToast("Token Expired", `Token for ${tokenData.student.name || 'student'} was expired. Ready to issue fresh token.`, "info");
-              return;
-            }
             showToast("Token Flagged Invalid", `This token is marked as ${st} in the database.`, "error");
             playBeep("error");
             return;

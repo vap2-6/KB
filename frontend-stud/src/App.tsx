@@ -45,6 +45,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Student, MealType, TokenHistoryItem } from './types';
 import MealToken from './components/MealToken';
+import ForgotPasswordModal from './components/ForgotPasswordModal';
 import rkmvcLogo from './assets/images/rkm_logo.png';
 // @ts-ignore
 import rkmPortrait from './assets/images/regenerated_image_1783062789272.png';
@@ -97,6 +98,7 @@ export default function App() {
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
 
   const hasUpperCase = /[A-Z]/.test(newPasswordInput);
   const hasLowerCase = /[a-z]/.test(newPasswordInput);
@@ -330,72 +332,100 @@ export default function App() {
         const isBfWindowActive = isTimeInWindow(activeBfStart, activeBfEnd, activeBfExpiry);
         const isLunchWindowActive = isTimeInWindow(activeLunchStart, activeLunchEnd, activeLunchExpiry);
 
-        let foundBreakfast: ActiveTokenState = { 
-          status: !isBfEligible ? 'not_eligible' : (isBfWindowActive ? 'pending_approval' : 'closed'), 
-          qrCodeUrl: null, expiresAtMs: 0, tokenId: null 
-        };
-        let foundLunch: ActiveTokenState = { 
-          status: !isLunchEligible ? 'not_eligible' : (isLunchWindowActive ? 'pending_approval' : 'closed'), 
-          qrCodeUrl: null, expiresAtMs: 0, tokenId: null 
+        const parseISO = (strVal: any) => {
+          if (!strVal) return 0;
+          const s = String(strVal).trim().replace(' ', 'T');
+          const parsed = new Date(s).getTime();
+          return isNaN(parsed) ? 0 : parsed;
         };
 
-        for (const t of allTokens) {
-          const mealName = (t.meal_type || '').toLowerCase().includes('breakfast') || (t.meal_type || '').toLowerCase().includes('forenoon') ? 'Breakfast' : 'Lunch';
-          const rawDateStr = t.created_at || t.generated_at || '';
-          const tokenDate = rawDateStr.split('T')[0].split(' ')[0];
-          if (tokenDate && tokenDate !== todayStr) continue;
+        const getMealState = async (
+          mealName: 'Breakfast' | 'Lunch',
+          isEligible: boolean,
+          isWindowActive: boolean
+        ): Promise<ActiveTokenState> => {
+          if (!isEligible) {
+            return { status: 'not_eligible', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+          }
 
+          // Filter tokens for this meal today
+          const matchingTokens = allTokens.filter((t: any) => {
+            const mt = (t.meal_type || '').toLowerCase();
+            const isMealMatch = mealName === 'Breakfast' 
+              ? (mt.includes('breakfast') || mt.includes('forenoon')) 
+              : (mt.includes('lunch') || mt.includes('afternoon'));
+            if (!isMealMatch) return false;
+            const rawDateStr = t.created_at || t.generated_at || '';
+            const tokenDate = rawDateStr.split('T')[0].split(' ')[0];
+            return !tokenDate || tokenDate === todayStr;
+          });
+
+          if (matchingTokens.length === 0) {
+            return {
+              status: isWindowActive ? 'pending_approval' : 'closed',
+              qrCodeUrl: null,
+              expiresAtMs: 0,
+              tokenId: null
+            };
+          }
+
+          // Prioritize any active/approved token over old expired ones
+          const activeTok = matchingTokens.find((t: any) => {
+            const st = (t.status || '').toLowerCase();
+            return st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open';
+          });
+
+          const t = activeTok || matchingTokens[0];
           const st = (t.status || '').toLowerCase();
           const generatedAt = t.generated_at || t.created_at || t.issued_at;
           const serverNowMs = t.server_current_time ? new Date(t.server_current_time).getTime() : Date.now();
           const serverTimeOffset = Date.now() - serverNowMs;
 
-          // Calculate Expiry Time from DB expiry_time OR configured Expiry Minutes after window end / generation
-          let expiresAtMs = 0;
-          if (t.expiry_time || t.expires_at) {
-            expiresAtMs = new Date(t.expiry_time || t.expires_at).getTime() + serverTimeOffset;
-          } else if (generatedAt) {
-            const expMins = mealName === 'Breakfast' ? activeBfExpiry : activeLunchExpiry;
-            expiresAtMs = new Date(generatedAt).getTime() + (expMins * 60 * 1000) + serverTimeOffset;
+          const expTimeStr = t.expiry_time || t.expires_at;
+          let expiresAtMs = parseISO(expTimeStr);
+
+          if (expiresAtMs <= 0 && generatedAt) {
+            const genMs = parseISO(generatedAt);
+            if (genMs > 0) {
+              expiresAtMs = genMs + (30 * 60 * 1000);
+            }
+          }
+
+          if (expiresAtMs > 0) {
+            expiresAtMs += serverTimeOffset;
           }
 
           const tokenId = t.token_id || t.token_uid || null;
 
-          let tokenStatus: ActiveTokenState['status'] = 'none';
-          let qrUrl: string | null = null;
-
           if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
-            if (expiresAtMs > Date.now()) {
-              tokenStatus = 'open';
-              // Generate QR from token_id
-              if (tokenId) {
-                try {
-                  qrUrl = await QRCode.toDataURL(tokenId, { width: 512, margin: 1, color: { dark: '#09090b', light: '#ffffff' } });
-                } catch { }
-              }
-            } else {
-              tokenStatus = 'expired';
+            if (expiresAtMs <= Date.now()) {
+              expiresAtMs = Date.now() + (30 * 60 * 1000);
             }
+            let qrUrl: string | null = null;
+            if (tokenId) {
+              try {
+                qrUrl = await QRCode.toDataURL(tokenId, { width: 512, margin: 1, color: { dark: '#09090b', light: '#ffffff' } });
+              } catch { }
+            }
+            return { status: 'open', qrCodeUrl: qrUrl, expiresAtMs, tokenId };
           } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            tokenStatus = 'claimed';
+            return { status: 'claimed', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           } else if (st === 'expired') {
-            tokenStatus = 'expired';
+            return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
+          } else if (st === 'rejected') {
+            return { status: 'rejected', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           }
 
-          const state: ActiveTokenState = { status: tokenStatus, qrCodeUrl: qrUrl, expiresAtMs, tokenId };
+          return {
+            status: isWindowActive ? 'pending_approval' : 'closed',
+            qrCodeUrl: null,
+            expiresAtMs: 0,
+            tokenId: null
+          };
+        };
 
-          if (mealName === 'Breakfast') {
-            if (!isBfWindowActive && isBfEligible) {
-              state.status = 'closed';
-            }
-            foundBreakfast = state;
-          } else {
-            if (!isLunchWindowActive && isLunchEligible) {
-              state.status = 'closed';
-            }
-            foundLunch = state;
-          }
-        }
+        const foundBreakfast = await getMealState('Breakfast', isBfEligible, isBfWindowActive);
+        const foundLunch = await getMealState('Lunch', isLunchEligible, isLunchWindowActive);
 
         setBreakfastToken(foundBreakfast);
         setLunchToken(foundLunch);
@@ -474,6 +504,31 @@ export default function App() {
   };
 
   const [tokenHistory, setTokenHistory] = useState<Array<any>>([]);
+
+  const handleRegenerateToken = async (mealType: 'Breakfast' | 'Lunch') => {
+    if (!loggedInStudent?.id && !loggedInStudent?.roll) return;
+    const studentReg = loggedInStudent.roll || loggedInStudent.id;
+    const mealTypeDb = mealType === 'Breakfast' ? 'forenoon' : 'afternoon';
+    try {
+      const res = await fetch('/api/staff/issue-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_reg: studentReg,
+          meal_type: mealTypeDb,
+          staff_id: 'STUDENT_REGEN'
+        })
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || errData.message || 'Failed to regenerate token.');
+      }
+    } catch (err) {
+      alert('Unable to connect to server to regenerate token.');
+    }
+  };
 
 
 
@@ -1041,17 +1096,42 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      color: '#64748B',
-                      marginBottom: '6px'
-                    }}>
-                      Password
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: '#64748B',
+                        margin: 0
+                      }}>
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsForgotPasswordModalOpen(true);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#FA9632',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '4px 8px',
+                          margin: '-4px -8px',
+                          position: 'relative',
+                          zIndex: 20,
+                          pointerEvents: 'auto',
+                          userSelect: 'none'
+                        }}
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
                     <div style={{ position: 'relative' }}>
                       <input
                         type={showPassword ? "text" : "password"}
@@ -1680,6 +1760,7 @@ export default function App() {
                       windowStart={mealWindowConfig.bfStart}
                       windowEnd={mealWindowConfig.bfEnd}
                       onOpenQr={() => setSelectedMeal('Breakfast')}
+                      onRegenerate={() => handleRegenerateToken('Breakfast')}
                     />
 
                     {/* Lunch Token Card */}
@@ -1692,6 +1773,7 @@ export default function App() {
                       windowStart={mealWindowConfig.lunchStart}
                       windowEnd={mealWindowConfig.lunchEnd}
                       onOpenQr={() => setSelectedMeal('Lunch')}
+                      onRegenerate={() => handleRegenerateToken('Lunch')}
                     />
 
                   </div>
@@ -2043,6 +2125,24 @@ export default function App() {
       </AnimatePresence>
 
 
+
+      {/* FORGOT PASSWORD & GENERATION MODAL COMPONENT */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordModalOpen}
+        onClose={() => setIsForgotPasswordModalOpen(false)}
+        initialRegNo={studentId}
+        studentsList={studentsList}
+        onSuccess={(studentUser, token) => {
+          setLoggedInStudent(studentUser);
+          localStorage.setItem('canteen_student_session', JSON.stringify(studentUser));
+          if (token) {
+            localStorage.setItem('student_token', token);
+          }
+          setActiveTab('canteen');
+          setStudentId('');
+          setPassword('');
+        }}
+      />
 
     </div>
   );

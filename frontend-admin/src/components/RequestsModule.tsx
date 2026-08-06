@@ -5,7 +5,6 @@ import MediaLightbox, { LightboxMediaItem } from './MediaLightbox';
 
 interface RegistrationRow {
   registration_id: string;
-  app_no?: string;
   student_name: string;
   dob_age?: string;
   date_of_birth?: string;
@@ -28,7 +27,6 @@ interface RegistrationRow {
   permanent_pin?: string;
   local_address?: string;
   local_pin?: string;
-  last_year_id?: string;
   status: string;
   submitted_at: string;
   student_image_path?: string;
@@ -242,7 +240,6 @@ export default function RequestsModule({ showToast, onPendingCountChange }: Requ
         
         {/* Single Flow Details Grid (No Repetition!) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {detailRow('App No', d.app_no || 'N/A')}
           {detailRow('Date of Birth', d.date_of_birth || d.dob_age || 'N/A')}
           {detailRow('Age', d.age ? `${d.age} Years` : 'N/A')}
           {detailRow('Course', d.course || 'N/A')}
@@ -258,7 +255,6 @@ export default function RequestsModule({ showToast, onPendingCountChange }: Requ
           {detailRow('Annual Income', d.annual_income ? `₹${Number(d.annual_income).toLocaleString('en-IN')}` : 'N/A')}
           {detailRow('Distance to College', d.distance_km ? `${d.distance_km} Km` : 'N/A')}
           {detailRow('Meal Sessions', [r.forenoon_meal && 'Forenoon', r.afternoon_meal && 'Afternoon'].filter(Boolean).join(' & ') || 'None')}
-          {detailRow('Last Year ID', d.last_year_id || 'N/A')}
           {detailRow('Submitted Timestamp', new Date(d.submitted_at).toLocaleString())}
           {d.permanent_address && detailRow('Permanent Address', `${d.permanent_address} (PIN: ${d.permanent_pin || 'N/A'})`, true)}
           {d.local_address && detailRow('Local Address', `${d.local_address} (PIN: ${d.local_pin || 'N/A'})`, true)}

@@ -38,8 +38,37 @@ def student_auth_login():
         conn = get_db()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM student_meals WHERE student_id = %s OR username = %s LIMIT 1", (student_reg_no, student_reg_no))
+                clean_id = str(student_reg_no).strip()
+                cur.execute("""
+                    SELECT * FROM student_meals 
+                    WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) 
+                       OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
+                    LIMIT 1
+                """, (clean_id, clean_id))
                 student = cur.fetchone()
+
+                if not student:
+                    cur.execute("""
+                        SELECT * FROM meal_registrations 
+                        WHERE LOWER(TRIM(department_roll_no)) = LOWER(TRIM(%s))
+                           OR (student_id IS NOT NULL AND LOWER(TRIM(student_id)) = LOWER(TRIM(%s)))
+                        LIMIT 1
+                    """, (clean_id, clean_id))
+                    reg = cur.fetchone()
+                    if reg:
+                        s_id = reg.get('department_roll_no') or reg.get('student_id') or clean_id
+                        s_name = reg.get('student_name') or reg.get('name') or 'Student'
+                        s_dept = reg.get('degree_department') or reg.get('department') or 'Student'
+                        s_email = reg.get('email')
+                        s_mobile = reg.get('mobile_no') or reg.get('mobile')
+                        cur.execute("""
+                            INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
+                            VALUES (%s, %s, %s, %s, '1st Year', %s, %s, 'pass123', 1, 1)
+                            ON DUPLICATE KEY UPDATE name=VALUES(name)
+                        """, (s_id, s_name, s_id, s_dept, s_email, s_mobile))
+                        conn.commit()
+                        cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
+                        student = cur.fetchone()
         finally:
             conn.close()
         
@@ -82,6 +111,198 @@ def student_auth_login():
                 "id": student['student_id'],
                 "username": student['student_id'],
                 "email": student.get('email'),
+                "role": "student",
+                "display_name": student.get('name'),
+                "student_id": student['student_id'],
+                "department": student.get('grade_section'),
+                "grade_section": student.get('grade_section'),
+                "degree_year": student.get('degree_year') or "1st Year",
+                "mobile_no": student.get('mobile_no'),
+                "forenoon_meal": bool(student.get('forenoon_meal')),
+                "afternoon_meal": bool(student.get('afternoon_meal')),
+                "image_url": student.get('image_url')
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@student_bp.route('/auth/forgot-password', methods=['POST'])
+@student_bp.route('/api/auth/forgot-password', methods=['POST'])
+def student_forgot_password():
+    try:
+        data = request.get_json(silent=True) or {}
+        student_reg_no = (
+            data.get('register_no') or
+            data.get('register_number') or
+            data.get('student_id') or
+            data.get('username') or ''
+        ).strip()
+
+        if not student_reg_no:
+            return jsonify({"error": "Please enter your Registration Number"}), 400
+
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                clean_id = str(student_reg_no).strip()
+                cur.execute("""
+                    SELECT * FROM student_meals 
+                    WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) 
+                       OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
+                    LIMIT 1
+                """, (clean_id, clean_id))
+                student = cur.fetchone()
+
+                if not student:
+                    cur.execute("""
+                        SELECT * FROM meal_registrations 
+                        WHERE LOWER(TRIM(department_roll_no)) = LOWER(TRIM(%s))
+                           OR (student_id IS NOT NULL AND LOWER(TRIM(student_id)) = LOWER(TRIM(%s)))
+                        LIMIT 1
+                    """, (clean_id, clean_id))
+                    reg = cur.fetchone()
+                    if reg:
+                        s_id = reg.get('department_roll_no') or reg.get('student_id') or clean_id
+                        s_name = reg.get('student_name') or reg.get('name') or 'Student'
+                        s_dept = reg.get('degree_department') or reg.get('department') or 'Student'
+                        s_email = reg.get('email')
+                        s_mobile = reg.get('mobile_no') or reg.get('mobile')
+                        cur.execute("""
+                            INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
+                            VALUES (%s, %s, %s, %s, '1st Year', %s, %s, 'pass123', 1, 1)
+                            ON DUPLICATE KEY UPDATE name=VALUES(name)
+                        """, (s_id, s_name, s_id, s_dept, s_email, s_mobile))
+                        conn.commit()
+                        cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
+                        student = cur.fetchone()
+
+                if not student:
+                    s_id = clean_id
+                    s_name = f"Student {s_id}"
+                    cur.execute("""
+                        INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, password_hash, forenoon_meal, afternoon_meal)
+                        VALUES (%s, %s, %s, 'Student', '1st Year', 'pass123', 1, 1)
+                        ON DUPLICATE KEY UPDATE name=VALUES(name)
+                    """, (s_id, s_name, s_id))
+                    conn.commit()
+                    cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
+                    student = cur.fetchone()
+
+                # Generate a strong unique password with uppercase, lowercase, digits & symbols
+                import secrets
+                chars_upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+                chars_lower = "abcdefghijkmnopqrstuvwxyz"
+                chars_digits = "23456789"
+                chars_symbols = "!@#$%^&*"
+
+                raw_pwd = [
+                    secrets.choice(chars_upper),
+                    secrets.choice(chars_lower),
+                    secrets.choice(chars_digits),
+                    secrets.choice(chars_symbols)
+                ]
+                all_chars = chars_upper + chars_lower + chars_digits + chars_symbols
+                raw_pwd += [secrets.choice(all_chars) for _ in range(8)]
+                secrets.SystemRandom().shuffle(raw_pwd)
+                new_password = "".join(raw_pwd)
+
+                # Hash password with bcrypt
+                salt = bcrypt.gensalt()
+                hashed = bcrypt.hashpw(new_password.encode('utf-8'), salt).decode('utf-8')
+
+                # Update database
+                cur.execute("UPDATE student_meals SET password_hash = %s WHERE id = %s", (hashed, student['id']))
+                conn.commit()
+        finally:
+            conn.close()
+
+        # Retrieve student email from student_meals or fallback to meal_registrations
+        student_email = (student.get('email') or '').strip()
+        if not student_email or '@' not in student_email:
+            try:
+                conn_mail = get_db()
+                with conn_mail.cursor() as mail_cur:
+                    mail_cur.execute("""
+                        SELECT email FROM meal_registrations 
+                        WHERE LOWER(TRIM(department_roll_no)) = LOWER(TRIM(%s)) 
+                           OR (student_id IS NOT NULL AND LOWER(TRIM(student_id)) = LOWER(TRIM(%s))) 
+                        LIMIT 1
+                    """, (clean_id, clean_id))
+                    reg_row = mail_cur.fetchone()
+                    if reg_row and reg_row.get('email'):
+                        student_email = reg_row['email'].strip()
+                        mail_cur.execute("UPDATE student_meals SET email = %s WHERE id = %s", (student_email, student['id']))
+                        conn_mail.commit()
+                conn_mail.close()
+            except Exception:
+                pass
+
+        # Send email containing the new password to student_email
+        email_sent = False
+        if student_email and '@' in student_email:
+            try:
+                from admin_backend.email_service import get_smtp_config, _send_mime_message
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
+                cfg = get_smtp_config()
+                msg = MIMEMultipart('alternative')
+                msg['From'] = cfg['from']
+                msg['To'] = student_email
+                msg['Subject'] = 'Ramakrishna Mission Vidyapith - Password Reset Notification'
+
+                text_body = f"""Dear {student.get('name', 'Student')},
+
+Your password for the RKMVC Student Meal Portal has been reset.
+
+Registration Number: {student['student_id']}
+New Password: {new_password}
+
+Login URL: {cfg.get('login_url', 'http://localhost:5050/student/')}
+
+Please keep this password secure.
+
+Ramakrishna Mission Vidyapith
+Mylapore, Chennai - 600 004."""
+
+                html_body = f"""<html><body style="font-family: Arial, sans-serif; color: #333; margin: 0; padding: 10px;">
+<div style="max-width: 600px; margin: 0 auto; background: #fff8f0; border: 1px solid #fbd5a5; border-radius: 12px; overflow: hidden;">
+<div style="background: #ea580c; padding: 20px; text-align: center;">
+<h2 style="color: #fff; margin: 0; font-size: 18px; font-weight: bold;">Ramakrishna Mission Vidyapith</h2>
+<p style="color: #ffedd5; margin: 4px 0 0; font-size: 12px;">Student Meal Portal Password Reset</p>
+</div>
+<div style="padding: 24px;">
+<p style="font-size: 14px;">Dear <strong>{student.get('name', 'Student')}</strong>,</p>
+<p style="font-size: 13px;">Your password for the Student Meal Scheme has been successfully updated.</p>
+<div style="background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 18px; margin: 18px 0; text-align: center;">
+<p style="font-size: 11px; color: #9a3412; font-weight: bold; text-transform: uppercase; margin: 0 0 6px;">Your New Unique Password</p>
+<p style="font-size: 20px; font-family: monospace; font-weight: bold; color: #7c2d12; background: #fff7ed; padding: 10px 16px; border: 1px solid #fbd5a5; border-radius: 8px; margin: 0; display: inline-block;">{new_password}</p>
+</div>
+<p style="font-size: 13px; color: #4b5563;">You can use this password to sign into your portal at <a href="{cfg.get('login_url', '#')}" style="color: #ea580c; font-weight: bold;">Student Portal</a>.</p>
+</div>
+<div style="background: #ffedd5; padding: 12px; text-align: center; font-size: 11px; color: #9a3412;">
+Ramakrishna Mission Vidyapith &bull; Mylapore, Chennai - 600 004.
+</div>
+</div></body></html>"""
+
+                msg.attach(MIMEText(text_body, 'plain'))
+                msg.attach(MIMEText(html_body, 'html'))
+                _send_mime_message(cfg, msg)
+                email_sent = True
+            except Exception as mail_err:
+                print("Failed to send password reset email:", mail_err, flush=True)
+
+        token = generate_student_token(student)
+        return jsonify({
+            "message": "Password reset successfully",
+            "new_password": new_password,
+            "email_sent": email_sent,
+            "student_email": student_email,
+            "token": token,
+            "user": {
+                "id": student['student_id'],
+                "username": student['student_id'],
+                "email": student_email or student.get('email'),
                 "role": "student",
                 "display_name": student.get('name'),
                 "student_id": student['student_id'],
@@ -219,20 +440,28 @@ def get_active_token():
     
     formatted_tokens = []
     for t in tokens:
+        exp_val = t.get('expiry_time') or t.get('expires_at')
+        exp_str = exp_val.isoformat() if isinstance(exp_val, datetime.datetime) else (str(exp_val).replace(' ', 'T') if exp_val else None)
+        c_val = t.get('created_at')
+        c_str = c_val.isoformat() if isinstance(c_val, datetime.datetime) else (str(c_val).replace(' ', 'T') if c_val else None)
+        
         formatted_tokens.append({
             "id": t['id'],
             "token_uid": t['token_uid'],
             "student_id": t['student_id'],
             "meal_type": "Breakfast" if t.get('meal_type') == "forenoon" else "Lunch",
             "status": t.get('status'),
-            "created_at": t['created_at'].isoformat() if t.get('created_at') else None,
-            "scanned_at": t['scanned_at'].isoformat() if t.get('scanned_at') else None,
-            "approved_at": t['approved_at'].isoformat() if t.get('approved_at') else None,
+            "created_at": c_str,
+            "generated_at": c_str,
+            "scanned_at": t['scanned_at'].isoformat() if isinstance(t.get('scanned_at'), datetime.datetime) else None,
+            "approved_at": t['approved_at'].isoformat() if isinstance(t.get('approved_at'), datetime.datetime) else None,
+            "expires_at": exp_str,
+            "expiry_time": exp_str,
             "qr_data": t['token_uid']
         })
 
     active_tok = None
-    if formatted_tokens and formatted_tokens[0]['status'] == 'active':
+    if formatted_tokens and formatted_tokens[0]['status'] in ('active', 'approved', 'staff_verified', 'token_issued'):
         active_tok = {
             "token_uid": formatted_tokens[0]['token_uid'],
             "meal_type": formatted_tokens[0]['meal_type'],

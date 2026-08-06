@@ -95,7 +95,7 @@ class AppState(db.Model):
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
 class MealTimeWindow(db.Model):
-    __tablename__ = 'meal_time_windows'
+    __tablename__ = 'meal_windows'
     id = Column(Integer, primary_key=True, autoincrement=True)
     meal_type = Column(Enum('forenoon', 'afternoon'), nullable=False)
     start_time = Column(Time, nullable=False)

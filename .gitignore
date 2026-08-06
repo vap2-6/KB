@@ -32,6 +32,7 @@ mysql_local_data/
 *.db-journal
 
 # Uploads & Generated Files
+noon meals paint photos 2026
 uploads/
 generated_pdfs/
 temp/
@@ -54,4 +55,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+# Local assets/photos
+noon meals paint photos 2026*
 

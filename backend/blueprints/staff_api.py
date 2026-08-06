@@ -56,11 +56,22 @@ def approve_student():
         _log_scan(scanner_id, 'approval_staff', 'student_id_qr', scanned_payload, student_id, existing.token_uid, 'duplicate_meal')
         return jsonify({"status": "DUPLICATE", "error": "Token already exists for this meal today", "student": {"student_id": student.student_id, "name": student.name}}), 200
     token_uid = _generate_token_uid(meal_type)
-    window_end = datetime.datetime.combine(now.date(), datetime.datetime.strptime(str(active.end_time), '%H:%M:%S').time())
-    expiry_mins = getattr(active, 'expiry_minutes', 15)
-    expiry_dt = window_end + datetime.timedelta(minutes=int(expiry_mins))
+    expiry_mins = max(30, int(getattr(active, 'expiry_minutes', 30) or 30))
+    token_expiry = now + datetime.timedelta(minutes=expiry_mins)
+    if active and hasattr(active, 'end_time') and active.end_time:
+        try:
+            window_end = datetime.datetime.combine(now.date(), datetime.datetime.strptime(str(active.end_time), '%H:%M:%S').time())
+            window_expiry = window_end + datetime.timedelta(minutes=expiry_mins)
+            expiry_dt = max(token_expiry, window_expiry)
+        except Exception:
+            expiry_dt = token_expiry
+    else:
+        expiry_dt = token_expiry
+
     token = MealToken(
         token_uid=token_uid, student_id=student_id, meal_type=meal_type,
+        cached_student_name=getattr(student, 'name', None),
+        cached_image_url=getattr(student, 'image_url', None),
         status='approved', scanned_by=scanner_id, scanned_at=now,
         approved_by=scanner_id, approved_at=now,
         token_issued_at=now, expiry_time=expiry_dt
@@ -86,7 +97,7 @@ def _generate_token_uid(meal_type):
 def _token_dict(t):
     return {
         "uid": t.token_uid, "token_uid": t.token_uid, "student_id": t.student_id,
-        "student_name": t.student_info.name if t.student_info else None,
+        "student_name": (t.student_info.name if t.student_info else None) or t.cached_student_name or t.student_id,
         "meal_type": t.meal_type, "status": t.status,
         "scanned_by": t.scanned_by, "approved_by": t.approved_by,
         "created_at": t.created_at.isoformat() if t.created_at else None,
