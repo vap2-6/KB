@@ -74,18 +74,9 @@ A complete, full-stack Ramakrishna Mission Vivekananda College (RKMVC) Meal Toke
 
 ---
 
-## 🔒 Pre-Loaded Testing Credentials
+## 🔒 System Authentication & Security
 
-| Role | Username / Staff ID / Reg No | Password | Access / Portal |
-| :--- | :--- | :--- | :--- |
-| **System Admin** | `admin` | `adminpassword` | Admin Dashboard (`/admin/`) |
-| **Morning Warden** | `STAFF101` | `staffpassword` | Approval Staff Terminal (`/staff/`) |
-| **Noon Warden** | `STAFF102` | `staffpassword` | Approval Staff Terminal (`/staff/`) |
-| **Canteen Counter A** | `CANTEEN01` | `staffpassword` | Canteen Staff Terminal (`/staff/`) |
-| **Canteen Counter B** | `CANTEEN02` | `staffpassword` | Canteen Staff Terminal (`/staff/`) |
-| **Student 1** | `243301034021` | `pass123` | Student Portal (`/student/`) |
-| **Student 2** | `STU101` | `pass123` | Student Portal (`/student/`) |
-| **Student 3** | `STU102` | `pass123` | Student Portal (`/student/`) |
+Administrative and staff terminal access is controlled via system-provisioned operator credentials and role-based permissions (`admin`, `approval_staff`, `canteen_staff`). Student accounts are created dynamically through the registration portal (`/register/`) or administrative import.
 
 ---
 

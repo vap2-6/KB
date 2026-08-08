@@ -227,14 +227,8 @@ def get_students():
         
         # Map DB structure to Frontend format
         students = [map_db_student_to_frontend(s) for s in db_students]
-        return jsonify(students)
     except Exception as e:
-        fallback_students = [
-            {'reg_no': '243301034021', 'name': 'Chen Kai', 'year': '1st Year', 'department': 'Computer Applications', 'image_url': 'https://ui-avatars.com/api/?name=Chen+Kai&background=random', 'forenoon_meal': True, 'afternoon_meal': True},
-            {'reg_no': 'STU101', 'name': 'Arjun Sharma', 'year': '2nd Year', 'department': 'B.Sc. Comp Sci', 'image_url': 'https://ui-avatars.com/api/?name=Arjun+Sharma&background=random', 'forenoon_meal': True, 'afternoon_meal': True},
-            {'reg_no': 'STU102', 'name': 'Priya Patel', 'year': '3rd Year', 'department': 'B.Sc. Comp Sci', 'image_url': 'https://ui-avatars.com/api/?name=Priya+Patel&background=random', 'forenoon_meal': True, 'afternoon_meal': True},
-            {'reg_no': 'STU103', 'name': 'Rahul Nair', 'year': '1st Year', 'department': 'B.Sc. Physics', 'image_url': 'https://ui-avatars.com/api/?name=Rahul+Nair&background=random', 'forenoon_meal': True, 'afternoon_meal': False}
-        ]
+        fallback_students = []
         return jsonify(fallback_students), 200
 
 @staff_bp.route('/tokens', methods=['GET'])

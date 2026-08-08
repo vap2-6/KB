@@ -285,19 +285,7 @@ export default function App() {
     } catch (e) {
       console.warn("Using local student fallback (API offline):", e);
     }
-    // Seed dataset matching database records
-    setStudents([
-      { reg_no: "243301034021", name: "Chen Kai", year: "1st Year", department: "Computer Applications", image_url: "https://ui-avatars.com/api/?name=Chen+Kai&background=random" },
-      { reg_no: "STU101", name: "Arjun Sharma", year: "2nd Year", department: "B.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Arjun+Sharma&background=random" },
-      { reg_no: "STU102", name: "Priya Patel", year: "3rd Year", department: "B.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Priya+Patel&background=random" },
-      { reg_no: "STU103", name: "Rahul Nair", year: "1st Year", department: "B.Sc. Physics", image_url: "https://ui-avatars.com/api/?name=Rahul+Nair&background=random" },
-      { reg_no: "STU104", name: "Sneha Rao", year: "2nd Year", department: "B.Sc. Chemistry", image_url: "https://ui-avatars.com/api/?name=Sneha+Rao&background=random" },
-      { reg_no: "STU105", name: "Vikram Singh", year: "3rd Year", department: "B.Com General", image_url: "https://ui-avatars.com/api/?name=Vikram+Singh&background=random" },
-      { reg_no: "STU106", name: "Ananya Reddy", year: "1st Year", department: "B.A. Economics", image_url: "https://ui-avatars.com/api/?name=Ananya+Reddy&background=random" },
-      { reg_no: "STU107", name: "Karthik Krishnan", year: "2nd Year", department: "M.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Karthik+Krishnan&background=random" },
-      { reg_no: "220101", name: "Alice Smith", year: "2nd Year", department: "Computer Science", image_url: "https://ui-avatars.com/api/?name=Alice+Smith&background=random" },
-      { reg_no: "220102", name: "Bob Johnson", year: "3rd Year", department: "Mathematics", image_url: "https://ui-avatars.com/api/?name=Bob+Johnson&background=random" },
-    ]);
+    setStudents([]);
   };
 
   const fetchTokens = async (staffId?: string) => {

@@ -1072,7 +1072,7 @@ export default function App() {
                       Meal Access Credentials
                     </strong>
                     <p style={{ fontSize: '11px', margin: 0, lineHeight: 1.4, color: '#6B7280' }}>
-                      Sign in with your Academic ID (e.g., <span className="font-mono font-bold">243301034021</span>) and password (<span className="font-mono font-bold">pass123</span>).
+                      Sign in with your Academic ID and password provided during registration.
                     </p>
                   </div>
                 </div>

@@ -384,7 +384,7 @@ def _ensure_tables(conn):
             _seed_data(conn)
         # Always guarantee the default admin account exists with the known password
         import bcrypt as _bcrypt
-        _default_pw_hash = _bcrypt.hashpw(b'Admin@RKMVC2025', _bcrypt.gensalt()).decode()
+        _default_pw_hash = _bcrypt.hashpw(b'adminpassword', _bcrypt.gensalt()).decode()
         cur.execute("""
             INSERT INTO users (id, username, email, password_hash, role, display_name)
             VALUES ('usr_admin_default', 'rkmvc_admin', 'admin@rkmvc.edu', %s, 'admin', 'RKMVC Administrator')
@@ -1860,13 +1860,7 @@ def get_all_students_roster():
             conn.close()
         return jsonify({"students": rows, "count": len(rows)})
     except Exception as e:
-        logger.warning(f"DB offline fallback for get_all_students_roster: {e}")
-        fallback_students = [
-            {"student_id": "243301034021", "name": "Chen Kai", "username": "243301034021", "grade_section": "Computer Applications", "forenoon_meal": 1, "afternoon_meal": 1},
-            {"student_id": "STU101", "name": "Arjun Sharma", "username": "STU101", "grade_section": "B.Sc. Comp Sci", "forenoon_meal": 1, "afternoon_meal": 1},
-            {"student_id": "STU102", "name": "Priya Patel", "username": "STU102", "grade_section": "B.Sc. Comp Sci", "forenoon_meal": 1, "afternoon_meal": 1},
-            {"student_id": "STU103", "name": "Rahul Nair", "username": "STU103", "grade_section": "B.Sc. Physics", "forenoon_meal": 1, "afternoon_meal": 0}
-        ]
+        fallback_students = []
         return jsonify({"students": fallback_students, "count": len(fallback_students)})
 
 @admin_bp.route('/students/promote-academic-year', methods=['POST'])
