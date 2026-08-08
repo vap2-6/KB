@@ -255,7 +255,7 @@ export default function App() {
       return fetch(url, init);
     }
     const rawEnv = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
-    let hostBase = '';
+    let hostBase = typeof window !== 'undefined' ? window.location.origin : '';
     if (rawEnv.startsWith('http')) {
       try {
         const u = new URL(rawEnv);
@@ -683,6 +683,11 @@ export default function App() {
                 await fetchTokens();
                 showToast("Access Approved & Redeemed", `Meal distributed successfully for ${tokenData.student?.name || 'Student'}!`, "success");
                 playBeep("success");
+                return;
+              } else {
+                const errData = await approveRes.json().catch(() => ({}));
+                showToast("Redemption Failed", errData.error || errData.message || "Failed to approve token.", "error");
+                playBeep("error");
                 return;
               }
             } catch (e) {

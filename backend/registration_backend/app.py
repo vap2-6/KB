@@ -56,6 +56,24 @@ MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE', 'rkmvc_mealflow_db')
 REGISTRATIONS_TABLE = 'meal_registrations'
 
 
+def _format_degree_year(val):
+    if not val:
+        return ''
+    s = str(val).strip()
+    s_lower = s.lower()
+    if '1' in s_lower or 'first' in s_lower or s_lower == 'i':
+        return '1st Year'
+    elif '2' in s_lower or 'second' in s_lower or s_lower == 'ii':
+        return '2nd Year'
+    elif '3' in s_lower or 'third' in s_lower or s_lower == 'iii':
+        return '3rd Year'
+    elif 'graduat' in s_lower or 'complet' in s_lower:
+        return 'Graduated'
+    elif 'year' in s_lower:
+        return s.title()
+    else:
+        return f"{s} Year" if not s.endswith('Year') else s
+
 def _get_mysql_connection():
     import pymysql
     target_host = os.environ.get('MYSQL_HOST', os.environ.get('DB_HOST', '127.0.0.1'))
@@ -647,7 +665,10 @@ def register_student():
         dob_age = data.get('dob_age')
         course = data.get('course')
         department = data.get('department')
-        degree_year = data.get('degree_year')
+        raw_year = (data.get('degree_year') or data.get('year') or '').strip()
+        if not raw_year:
+            return jsonify({"error": "Year of Degree (1st Year, 2nd Year, or 3rd Year) is required to submit application."}), 400
+        degree_year = _format_degree_year(raw_year)
         dept_number = (data.get('dept_number') or '').strip()
         if not dept_number or not re.match(r'^\d{13}$', dept_number):
             return jsonify({"error": "Department Number must be exactly 13 digits."}), 400

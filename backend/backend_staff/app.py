@@ -83,21 +83,35 @@ def get_db_connection():
 
 # Helper functions to map DB objects to the schema the frontend expects
 
+def _format_academic_year(val):
+    if not val:
+        return 'Unspecified'
+    s = str(val).strip()
+    s_lower = s.lower()
+    if s_lower == 'enrolled' or s_lower == '' or s_lower == 'n/a' or s_lower == 'null':
+        return 'Unspecified'
+    if s_lower == '1' or '1st' in s_lower or s_lower == 'i' or s_lower == 'first':
+        return '1st Year'
+    elif s_lower == '2' or '2nd' in s_lower or s_lower == 'ii' or s_lower == 'second':
+        return '2nd Year'
+    elif s_lower == '3' or '3rd' in s_lower or s_lower == 'iii' or s_lower == 'third':
+        return '3rd Year'
+    elif 'graduat' in s_lower:
+        return 'Graduated'
+    elif 'year' in s_lower:
+        return s.title()
+    else:
+        return f"{s} Year"
+
 def map_db_student_to_frontend(db_student):
     if not db_student:
         return None
 
     grade = db_student.get('grade_section') or 'N/A'
-    degree_yr = db_student.get('degree_year') or db_student.get('year') or ''
+    raw_yr = db_student.get('degree_year') or db_student.get('year')
 
     dept = grade
-    year = f"{degree_yr} Year" if degree_yr and not str(degree_yr).endswith('Year') else (degree_yr or 'Enrolled')
-
-    if ' - ' in grade:
-        parts = grade.split(' - ', 1)
-        dept = grade
-        if not degree_yr:
-            year = 'Enrolled'
+    year = _format_academic_year(raw_yr)
 
     sid = db_student.get('student_id')
     raw_img = db_student.get('image_url') or db_student.get('image_path') or db_student.get('student_image_path')
@@ -457,29 +471,11 @@ def issue_token():
             conn.close()
             return jsonify({'error': msg}), 400
 
-        # Query active window for expiration calculation
-        cursor.execute("SELECT * FROM meal_windows WHERE meal_type = %s AND is_active = 1 LIMIT 1", (meal_type_db,))
-        active_window = cursor.fetchone()
-        exp_m = max(30, int(active_window.get('expiry_minutes') or 30)) if active_window else 30
-        now_dt = datetime.now()
-        token_expiry = now_dt + dt_timedelta(minutes=exp_m)
-        if active_window and active_window.get('end_time'):
-            try:
-                w_str = str(active_window['end_time'])
-                w_end = datetime.strptime(w_str, '%H:%M:%S' if len(w_str) == 8 else '%H:%M').time()
-                window_expiry = datetime.combine(now_dt.date(), w_end) + dt_timedelta(minutes=exp_m)
-                expiry_dt = max(token_expiry, window_expiry)
-            except Exception:
-                expiry_dt = token_expiry
-        else:
-            expiry_dt = token_expiry
-
-            
-        # Create fresh active token (Reactivates token for student if expired)
+        # Create fresh active token with exact 30-minute expiry relative to MySQL NOW()
         cursor.execute("""
-            INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by, expiry_time) 
-            VALUES (%s, %s, %s, %s, 'active', %s, %s)
-        """, (token_id, actual_student_id, student_name, meal_type_db, staff_id, expiry_dt))
+            INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by, created_at, expiry_time) 
+            VALUES (%s, %s, %s, %s, 'active', %s, NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE))
+        """, (token_id, actual_student_id, student_name, meal_type_db, staff_id))
         
         # Add a success log in scan audit
         cursor.execute("""

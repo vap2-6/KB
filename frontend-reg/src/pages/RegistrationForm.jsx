@@ -103,7 +103,13 @@ export default function MealRegistrationForm() {
                 }
                 if (fetchedData.degree_year) {
                     const el = document.getElementById('degree_year_select');
-                    if (el) el.value = String(fetchedData.degree_year);
+                    if (el) {
+                        const rawYr = String(fetchedData.degree_year).trim();
+                        if (rawYr === '1' || rawYr.toLowerCase().includes('1st')) el.value = '1st Year';
+                        else if (rawYr === '2' || rawYr.toLowerCase().includes('2nd')) el.value = '2nd Year';
+                        else if (rawYr === '3' || rawYr.toLowerCase().includes('3rd')) el.value = '3rd Year';
+                        else el.value = rawYr;
+                    }
                 }
                 if (fetchedData.permanent_address) {
                     const el = document.getElementById('permanent_address');
@@ -347,6 +353,13 @@ export default function MealRegistrationForm() {
         if (!emailValue || !emailRegex.test(emailValue)) {
             alert('Please enter a valid email address.');
             document.getElementById('email')?.focus();
+            return false;
+        }
+
+        const degreeYearValue = document.getElementById('degree_year_select')?.value.trim();
+        if (!degreeYearValue) {
+            alert('Please select your Year of Degree (1st Year, 2nd Year, or 3rd Year). Registration cannot be submitted without selecting your Year of Degree.');
+            document.getElementById('degree_year_select')?.focus();
             return false;
         }
 
@@ -884,10 +897,10 @@ export default function MealRegistrationForm() {
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">Year of Degree *</label>
                             <select id="degree_year_select" name="degree_year" required className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-amber-500 outline-none">
-                                <option value="">Select Year</option>
-                                <option value="1">1st Year</option>
-                                <option value="2">2nd Year</option>
-                                <option value="3">3rd Year</option>
+                                <option value="">Select Year *</option>
+                                <option value="1st Year">1st Year</option>
+                                <option value="2nd Year">2nd Year</option>
+                                <option value="3rd Year">3rd Year</option>
                             </select>
                         </div>
                         <div>

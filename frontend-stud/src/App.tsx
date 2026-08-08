@@ -332,11 +332,26 @@ export default function App() {
         const isBfWindowActive = isTimeInWindow(activeBfStart, activeBfEnd, activeBfExpiry);
         const isLunchWindowActive = isTimeInWindow(activeLunchStart, activeLunchEnd, activeLunchExpiry);
 
-        const parseISO = (strVal: any) => {
+        const parseLocalISO = (strVal: any) => {
           if (!strVal) return 0;
-          const s = String(strVal).trim().replace(' ', 'T');
-          const parsed = new Date(s).getTime();
-          return isNaN(parsed) ? 0 : parsed;
+          const clean = String(strVal).trim().replace('T', ' ').split('.')[0];
+          const parts = clean.split(' ');
+          if (parts.length >= 2) {
+            const dateParts = parts[0].split('-').map(Number);
+            const timeParts = parts[1].split(':').map(Number);
+            if (dateParts.length === 3 && timeParts.length >= 2) {
+              return new Date(
+                dateParts[0],
+                dateParts[1] - 1,
+                dateParts[2],
+                timeParts[0],
+                timeParts[1],
+                timeParts[2] || 0
+              ).getTime();
+            }
+          }
+          const fallback = new Date(strVal).getTime();
+          return isNaN(fallback) ? 0 : fallback;
         };
 
         const getMealState = async (
@@ -378,14 +393,14 @@ export default function App() {
           const t = activeTok || matchingTokens[0];
           const st = (t.status || '').toLowerCase();
           const generatedAt = t.generated_at || t.created_at || t.issued_at;
-          const serverNowMs = t.server_current_time ? new Date(t.server_current_time).getTime() : Date.now();
-          const serverTimeOffset = Date.now() - serverNowMs;
+          const serverNowMs = t.server_current_time ? parseLocalISO(t.server_current_time) : Date.now();
+          const serverTimeOffset = serverNowMs > 0 ? (Date.now() - serverNowMs) : 0;
 
           const expTimeStr = t.expiry_time || t.expires_at;
-          let expiresAtMs = parseISO(expTimeStr);
+          let expiresAtMs = parseLocalISO(expTimeStr);
 
           if (expiresAtMs <= 0 && generatedAt) {
-            const genMs = parseISO(generatedAt);
+            const genMs = parseLocalISO(generatedAt);
             if (genMs > 0) {
               expiresAtMs = genMs + (30 * 60 * 1000);
             }
@@ -398,8 +413,8 @@ export default function App() {
           const tokenId = t.token_id || t.token_uid || null;
 
           if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
-            if (expiresAtMs <= Date.now()) {
-              expiresAtMs = Date.now() + (30 * 60 * 1000);
+            if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
+              return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
             }
             let qrUrl: string | null = null;
             if (tokenId) {
@@ -589,6 +604,7 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsForgotPasswordModalOpen(false);
 
     const trimmedId = studentId.trim();
     const trimmedPw = password.trim();
@@ -617,7 +633,7 @@ export default function App() {
           email: data.user?.email || 'N/A',
           forenoon_meal: data.user?.forenoon_meal,
           afternoon_meal: data.user?.afternoon_meal,
-          photo: data.user?.image_url || rkmPortrait
+          photo: (data.user?.image_url && !data.user.image_url.includes('ui-avatars.com')) ? data.user.image_url : ""
         };
         setLoggedInStudent(studentUser);
         localStorage.setItem('canteen_student_session', JSON.stringify(studentUser));
@@ -1293,13 +1309,17 @@ export default function App() {
                   title={loggedInStudent.name}
                   aria-label="Student Profile Menu"
                 >
-                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border shadow-xs ${theme === 'black' ? 'bg-zinc-850 border-zinc-750' : 'bg-zinc-100 border-zinc-200'}`}>
-                    <img
-                      src={loggedInStudent.photo}
-                      alt={loggedInStudent.name}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border shadow-xs flex items-center justify-center ${theme === 'black' ? 'bg-zinc-850 border-zinc-750 text-zinc-400' : 'bg-zinc-100 border-zinc-200 text-zinc-500'}`}>
+                    {loggedInStudent.photo ? (
+                      <img
+                        src={loggedInStudent.photo}
+                        alt={loggedInStudent.name}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <User className="w-5 h-5" />
+                    )}
                   </div>
                 </button>
 
@@ -1315,14 +1335,18 @@ export default function App() {
                     <div className={`absolute right-0 mt-2 w-60 rounded-2xl shadow-xl border p-4 z-50 flex flex-col items-center text-center transition-all animate-in fade-in zoom-in-95 duration-150 ${theme === 'black' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
                       }`}>
                       {/* Image at Top */}
-                      <div className={`w-18 h-18 rounded-full overflow-hidden border-2 shadow-md mb-3 ${theme === 'black' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-100 border-zinc-200'
+                      <div className={`w-18 h-18 rounded-full overflow-hidden border-2 shadow-md mb-3 flex items-center justify-center ${theme === 'black' ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-100 border-zinc-200 text-zinc-500'
                         }`}>
-                        <img
-                          src={loggedInStudent.photo}
-                          alt={loggedInStudent.name}
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
+                        {loggedInStudent.photo ? (
+                          <img
+                            src={loggedInStudent.photo}
+                            alt={loggedInStudent.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <User className="w-8 h-8" />
+                        )}
                       </div>
 
                       {/* Student Name Below Image */}
@@ -1638,14 +1662,18 @@ export default function App() {
                     }`}>
                     {/* Photo column */}
                     <div className="flex flex-col items-center shrink-0">
-                      <div className={`w-40 h-40 rounded-3xl overflow-hidden border-4 shadow-xl relative ring-4 transition-colors duration-300 ${theme === 'black' ? 'border-zinc-800 ring-amber-500/20 dark:border-zinc-800' : 'border-zinc-100 ring-amber-500/10'
+                      <div className={`w-40 h-40 rounded-3xl overflow-hidden border-4 shadow-xl relative ring-4 transition-colors duration-300 flex items-center justify-center ${theme === 'black' ? 'border-zinc-800 ring-amber-500/20 bg-zinc-800 text-zinc-400 dark:border-zinc-800' : 'border-zinc-100 ring-amber-500/10 bg-zinc-100 text-zinc-500'
                         }`}>
-                        <img
-                          src={loggedInStudent.photo}
-                          alt={loggedInStudent.name}
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
+                        {loggedInStudent.photo ? (
+                          <img
+                            src={loggedInStudent.photo}
+                            alt={loggedInStudent.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <User className="w-16 h-16" />
+                        )}
                       </div>
                       <span className={`mt-3 text-[10px] font-mono font-bold px-3 py-1 rounded-full uppercase tracking-widest border transition-colors duration-300 ${theme === 'black'
                           ? 'bg-orange-950/40 text-orange-400 border-orange-900/50 dark:bg-orange-950/40 dark:text-orange-400'
@@ -2133,6 +2161,7 @@ export default function App() {
         initialRegNo={studentId}
         studentsList={studentsList}
         onSuccess={(studentUser, token) => {
+          setIsForgotPasswordModalOpen(false);
           setLoggedInStudent(studentUser);
           localStorage.setItem('canteen_student_session', JSON.stringify(studentUser));
           if (token) {

@@ -179,7 +179,7 @@ export default function StudentDetails({ students, onRefresh }: StudentDetailsPr
                       {/* Semester / Year */}
                       <td className="py-3 px-4 text-slate-700 font-semibold">
                         <span className="inline-block px-2.5 py-1 bg-amber-50 text-amber-800 rounded-md border border-amber-200 text-[11px] font-bold">
-                          {student.year}
+                          {student.year && student.year !== 'Enrolled' ? student.year : 'Unspecified'}
                         </span>
                       </td>
                     </tr>

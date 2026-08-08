@@ -59,13 +59,14 @@ def student_auth_login():
                         s_id = reg.get('department_roll_no') or reg.get('student_id') or clean_id
                         s_name = reg.get('student_name') or reg.get('name') or 'Student'
                         s_dept = reg.get('degree_department') or reg.get('department') or 'Student'
+                        s_yr = reg.get('degree_year') or ''
                         s_email = reg.get('email')
                         s_mobile = reg.get('mobile_no') or reg.get('mobile')
                         cur.execute("""
                             INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
-                            VALUES (%s, %s, %s, %s, '1st Year', %s, %s, 'pass123', 1, 1)
-                            ON DUPLICATE KEY UPDATE name=VALUES(name)
-                        """, (s_id, s_name, s_id, s_dept, s_email, s_mobile))
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pass123', 1, 1)
+                            ON DUPLICATE KEY UPDATE name=VALUES(name), degree_year=VALUES(degree_year)
+                        """, (s_id, s_name, s_id, s_dept, s_yr, s_email, s_mobile))
                         conn.commit()
                         cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
                         student = cur.fetchone()
@@ -102,6 +103,30 @@ def student_auth_login():
                 except Exception:
                     pass
 
+        # Check for photo in uploads/student_master_img
+        s_id_clean = str(student['student_id']).strip()
+        master_img_path = None
+        master_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'registration_backend', 'uploads', 'student_master_img'))
+        if os.path.exists(master_dir):
+            for ext in ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']:
+                candidate = os.path.join(master_dir, f"{s_id_clean}{ext}")
+                if os.path.exists(candidate):
+                    master_img_path = f"/uploads/student_master_img/{s_id_clean}{ext}"
+                    break
+                # Also check matching files
+                for f in os.listdir(master_dir):
+                    if f.startswith(s_id_clean) and any(f.endswith(e) for e in ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']):
+                        master_img_path = f"/uploads/student_master_img/{f}"
+                        break
+                if master_img_path:
+                    break
+
+        db_img = student.get('image_url') or student.get('image_path') or student.get('student_image_path') or ''
+        if db_img and 'ui-avatars.com' in db_img:
+            db_img = ''
+
+        final_img = master_img_path or db_img or ''
+
         token = generate_student_token(student)
         return jsonify({
             "token": token,
@@ -116,11 +141,11 @@ def student_auth_login():
                 "student_id": student['student_id'],
                 "department": student.get('grade_section'),
                 "grade_section": student.get('grade_section'),
-                "degree_year": student.get('degree_year') or "1st Year",
+                "degree_year": student.get('degree_year') or "",
                 "mobile_no": student.get('mobile_no'),
                 "forenoon_meal": bool(student.get('forenoon_meal')),
                 "afternoon_meal": bool(student.get('afternoon_meal')),
-                "image_url": student.get('image_url')
+                "image_url": final_img
             }
         })
     except Exception as e:
@@ -165,13 +190,14 @@ def student_forgot_password():
                         s_id = reg.get('department_roll_no') or reg.get('student_id') or clean_id
                         s_name = reg.get('student_name') or reg.get('name') or 'Student'
                         s_dept = reg.get('degree_department') or reg.get('department') or 'Student'
+                        s_yr = reg.get('degree_year') or ''
                         s_email = reg.get('email')
                         s_mobile = reg.get('mobile_no') or reg.get('mobile')
                         cur.execute("""
                             INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
-                            VALUES (%s, %s, %s, %s, '1st Year', %s, %s, 'pass123', 1, 1)
-                            ON DUPLICATE KEY UPDATE name=VALUES(name)
-                        """, (s_id, s_name, s_id, s_dept, s_email, s_mobile))
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pass123', 1, 1)
+                            ON DUPLICATE KEY UPDATE name=VALUES(name), degree_year=VALUES(degree_year)
+                        """, (s_id, s_name, s_id, s_dept, s_yr, s_email, s_mobile))
                         conn.commit()
                         cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
                         student = cur.fetchone()
@@ -181,7 +207,7 @@ def student_forgot_password():
                     s_name = f"Student {s_id}"
                     cur.execute("""
                         INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, password_hash, forenoon_meal, afternoon_meal)
-                        VALUES (%s, %s, %s, 'Student', '1st Year', 'pass123', 1, 1)
+                        VALUES (%s, %s, %s, 'Student', 'Unspecified', 'pass123', 1, 1)
                         ON DUPLICATE KEY UPDATE name=VALUES(name)
                     """, (s_id, s_name, s_id))
                     conn.commit()
@@ -337,6 +363,7 @@ def change_password():
         try:
             with conn.cursor() as cur:
                 cur.execute("UPDATE student_meals SET password_hash = %s WHERE student_id = %s OR username = %s", (hashed, username, username))
+                conn.commit()
         finally:
             conn.close()
 
@@ -422,7 +449,7 @@ def get_active_token():
                 UPDATE meal_tokens 
                 SET status = 'expired' 
                 WHERE status IN ('active', 'awaiting_scan', 'approved', 'token_issued', 'staff_verified')
-                  AND ((expiry_time IS NOT NULL AND expiry_time < NOW()) 
+                  AND ((expiry_time IS NOT NULL AND expiry_time <= NOW()) 
                     OR (expiry_time IS NULL AND TIMESTAMPDIFF(SECOND, created_at, NOW()) > 1800))
             """)
 
@@ -438,12 +465,24 @@ def get_active_token():
     finally:
         conn.close()
     
+    server_now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted_tokens = []
     for t in tokens:
         exp_val = t.get('expiry_time') or t.get('expires_at')
-        exp_str = exp_val.isoformat() if isinstance(exp_val, datetime.datetime) else (str(exp_val).replace(' ', 'T') if exp_val else None)
+        if isinstance(exp_val, (datetime.datetime, datetime.date)):
+            exp_str = exp_val.strftime("%Y-%m-%d %H:%M:%S")
+        elif exp_val:
+            exp_str = str(exp_val).replace('T', ' ')
+        else:
+            exp_str = None
+
         c_val = t.get('created_at')
-        c_str = c_val.isoformat() if isinstance(c_val, datetime.datetime) else (str(c_val).replace(' ', 'T') if c_val else None)
+        if isinstance(c_val, (datetime.datetime, datetime.date)):
+            c_str = c_val.strftime("%Y-%m-%d %H:%M:%S")
+        elif c_val:
+            c_str = str(c_val).replace('T', ' ')
+        else:
+            c_str = server_now_str
         
         formatted_tokens.append({
             "id": t['id'],
@@ -453,10 +492,11 @@ def get_active_token():
             "status": t.get('status'),
             "created_at": c_str,
             "generated_at": c_str,
-            "scanned_at": t['scanned_at'].isoformat() if isinstance(t.get('scanned_at'), datetime.datetime) else None,
-            "approved_at": t['approved_at'].isoformat() if isinstance(t.get('approved_at'), datetime.datetime) else None,
+            "scanned_at": t['scanned_at'].strftime("%Y-%m-%d %H:%M:%S") if isinstance(t.get('scanned_at'), (datetime.datetime, datetime.date)) else None,
+            "approved_at": t['approved_at'].strftime("%Y-%m-%d %H:%M:%S") if isinstance(t.get('approved_at'), (datetime.datetime, datetime.date)) else None,
             "expires_at": exp_str,
             "expiry_time": exp_str,
+            "server_current_time": server_now_str,
             "qr_data": t['token_uid']
         })
 

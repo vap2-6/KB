@@ -405,6 +405,26 @@ def _ensure_tables(conn):
     # `python app.py` / non-Docker run we create it here instead.
     _ensure_app_state(conn)
 
+def _format_degree_year(val):
+    if not val or str(val).strip() == '':
+        return ''
+    s = str(val).strip()
+    s_lower = s.lower()
+    if s_lower == 'enrolled':
+        return ''
+    if '1' in s_lower or 'first' in s_lower or s_lower == 'i':
+        return '1st Year'
+    elif '2' in s_lower or 'second' in s_lower or s_lower == 'ii':
+        return '2nd Year'
+    elif '3' in s_lower or 'third' in s_lower or s_lower == 'iii':
+        return '3rd Year'
+    elif 'graduat' in s_lower or 'complet' in s_lower:
+        return 'Graduated'
+    elif 'year' in s_lower:
+        return s.title()
+    else:
+        return f"{s} Year" if not s.endswith('Year') else s
+
 def _sync_approved_registrations_to_student_meals(conn):
     """Makes sure all approved registrations in meal_registrations are inserted into student_meals."""
     try:
@@ -423,6 +443,8 @@ def _sync_approved_registrations_to_student_meals(conn):
                 display_name = r.get('student_name') or username
                 student_email = r.get('email') or f"{username.lower()}@student.rkmvc"
                 grade_sec = f"{r.get('course', '')} - {r.get('department', '')}".strip(' -') or 'B.Sc. Comp Sci'
+                deg_year = _format_degree_year(r.get('degree_year') or r.get('year_of_degree'))
+                mobile_num = r.get('mobile_no') or r.get('phone') or 'N/A'
                 fn_meal = 1 if r.get('forenoon_meal') in [True, 1, 'true', '1', 'True'] else 0
                 an_meal = 1 if r.get('afternoon_meal') in [True, 1, 'true', '1', 'True'] else 0
                 qr_sec = _gen_qr_secret(sid)
@@ -431,15 +453,18 @@ def _sync_approved_registrations_to_student_meals(conn):
                 cur.execute("""
                     INSERT INTO student_meals (
                         student_id, username, email, password_hash, name, grade_section,
+                        degree_year, mobile_no,
                         forenoon_meal, afternoon_meal, qr_secret, image_url, image_path,
                         student_image_path
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     ) ON DUPLICATE KEY UPDATE
                         username=VALUES(username),
                         email=VALUES(email),
                         name=VALUES(name),
                         grade_section=VALUES(grade_section),
+                        degree_year=VALUES(degree_year),
+                        mobile_no=VALUES(mobile_no),
                         forenoon_meal=VALUES(forenoon_meal),
                         afternoon_meal=VALUES(afternoon_meal),
                         qr_secret=VALUES(qr_secret),
@@ -448,9 +473,27 @@ def _sync_approved_registrations_to_student_meals(conn):
                         student_image_path=VALUES(student_image_path)
                 """, (
                     sid, username, student_email, pw_hash, display_name, grade_sec,
+                    deg_year, mobile_num,
                     fn_meal, an_meal, qr_sec, img_url, img_path,
                     img_path
                 ))
+
+            # Run one-time SQL migration to populate missing degree_year for existing student_meals rows from meal_registrations
+            try:
+                cur.execute("""
+                    UPDATE student_meals sm
+                    INNER JOIN meal_registrations mr 
+                       ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.department_roll_no))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.student_id))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
+                    SET sm.degree_year = mr.degree_year
+                    WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
+                      AND (mr.degree_year IS NOT NULL AND mr.degree_year != '');
+                """)
+                conn.commit()
+            except Exception as backfill_err:
+                logger.warning("Notice backfilling degree_year: %s", backfill_err)
     except Exception as e:
         print("APPROVAL CRASH LOG (sync):", str(e), flush=True)
         logger.warning("Notice syncing approved registrations to student_meals: %s", e)
@@ -461,7 +504,6 @@ def _seed_data(conn):
         cur.execute("SET FOREIGN_KEY_CHECKS = 0")
         admin_pw = bcrypt.hashpw(b'adminpassword', bcrypt.gensalt()).decode()
         staff_pw = bcrypt.hashpw(b'staffpassword', bcrypt.gensalt()).decode()
-        student_pw = bcrypt.hashpw(b'pass123', bcrypt.gensalt()).decode()
         
         # 1. Operators (Admin & Staff ONLY)
         users = [
@@ -478,22 +520,6 @@ def _seed_data(conn):
                 VALUES (%s, %s, %s, %s, %s, %s) 
                 ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), role=VALUES(role)
             """, u)
-
-        # 2. Students (credentials & profile details in student_meals)
-        students = [
-            ('243301034021', '243301034021', 'chenkai@example.com', student_pw, 'Chen Kai', 'Computer Applications', 1, 1, None, _gen_qr_secret('243301034021'), 'https://ui-avatars.com/api/?name=Chen+Kai&background=random', '/uploads/students/243301034021.jpg'),
-            ('STU101', 'STU101', 'arjun@example.com', student_pw, 'Arjun Sharma', 'B.Sc. Comp Sci', 1, 1, None, _gen_qr_secret('STU101'), 'https://ui-avatars.com/api/?name=Arjun+Sharma&background=random', '/uploads/students/STU101.jpg'),
-            ('STU102', 'STU102', 'priya@example.com', student_pw, 'Priya Patel', 'B.Sc. Comp Sci', 1, 0, None, _gen_qr_secret('STU102'), 'https://ui-avatars.com/api/?name=Priya+Patel&background=random', '/uploads/students/STU102.jpg'),
-            ('STU103', 'STU103', 'rahul@example.com', student_pw, 'Rahul Nair', 'B.Sc. Physics', 0, 1, None, _gen_qr_secret('STU103'), 'https://ui-avatars.com/api/?name=Rahul+Nair&background=random', '/uploads/students/STU103.jpg'),
-            ('STU104', 'STU104', 'sneha@example.com', student_pw, 'Sneha Rao', 'B.Sc. Chemistry', 1, 1, None, _gen_qr_secret('STU104'), 'https://ui-avatars.com/api/?name=Sneha+Rao&background=random', '/uploads/students/STU104.jpg'),
-            ('STU105', 'STU105', 'vikram@example.com', student_pw, 'Vikram Singh', 'B.Com General', 0, 0, None, _gen_qr_secret('STU105'), 'https://ui-avatars.com/api/?name=Vikram+Singh&background=random', '/uploads/students/STU105.jpg'),
-        ]
-        for s in students:
-            cur.execute("""
-                INSERT INTO student_meals (student_id, username, email, password_hash, name, grade_section, forenoon_meal, afternoon_meal, last_served_date, qr_secret, image_url, image_path) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE name=VALUES(name)
-            """, s)
 
         cur.execute("SET FOREIGN_KEY_CHECKS = 1")
 
@@ -1108,14 +1134,14 @@ def get_meal_timings():
                 try:
                     data = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
                     return jsonify(data.get('meal_timings', {
-                        "forenoon": {"start": "07:30", "end": "10:00", "grace": 15},
-                        "afternoon": {"start": "12:00", "end": "14:30", "grace": 15}
+                        "forenoon": {"start": "07:30", "end": "10:00"},
+                        "afternoon": {"start": "12:00", "end": "14:30"}
                     }))
                 except Exception:
                     pass
             return jsonify({
-                "forenoon": {"start": "07:30", "end": "10:00", "grace": 15},
-                "afternoon": {"start": "12:00", "end": "14:30", "grace": 15}
+                "forenoon": {"start": "07:30", "end": "10:00"},
+                "afternoon": {"start": "12:00", "end": "14:30"}
             })
     finally:
         conn.close()
@@ -1812,8 +1838,24 @@ def get_all_students_roster():
         conn = get_db()
         try:
             with conn.cursor() as cur:
+                # Sync missing degree_year into student_meals from meal_registrations
+                cur.execute("""
+                    UPDATE student_meals sm
+                    INNER JOIN meal_registrations mr 
+                       ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.department_roll_no))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.student_id))
+                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
+                    SET sm.degree_year = mr.degree_year
+                    WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
+                      AND (mr.degree_year IS NOT NULL AND mr.degree_year != '');
+                """)
+                conn.commit()
+
                 cur.execute("SELECT * FROM student_meals ORDER BY name ASC")
                 rows = cur.fetchall()
+                for r in rows:
+                    r['degree_year'] = _format_degree_year(r.get('degree_year'))
         finally:
             conn.close()
         return jsonify({"students": rows, "count": len(rows)})
@@ -1826,6 +1868,35 @@ def get_all_students_roster():
             {"student_id": "STU103", "name": "Rahul Nair", "username": "STU103", "grade_section": "B.Sc. Physics", "forenoon_meal": 1, "afternoon_meal": 0}
         ]
         return jsonify({"students": fallback_students, "count": len(fallback_students)})
+
+@admin_bp.route('/students/promote-academic-year', methods=['POST'])
+@admin_bp.route('/api/students/promote-academic-year', methods=['POST'])
+@authenticate
+@require_role('admin')
+def promote_academic_year():
+    """Batch migrates student academic years: 1st Year -> 2nd Year -> 3rd Year -> Graduated."""
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                # 3rd Year -> Graduated (disable active meal eligibility for graduated students)
+                cur.execute("""
+                    UPDATE student_meals 
+                    SET degree_year = 'Graduated', forenoon_meal = 0, afternoon_meal = 0 
+                    WHERE degree_year LIKE '3rd%' OR degree_year = '3';
+                """)
+                # 2nd Year -> 3rd Year
+                cur.execute("UPDATE student_meals SET degree_year = '3rd Year' WHERE degree_year LIKE '2nd%' OR degree_year = '2';")
+                
+                # 1st Year -> 2nd Year
+                cur.execute("UPDATE student_meals SET degree_year = '2nd Year' WHERE degree_year LIKE '1st%' OR degree_year = '1';")
+                
+                conn.commit()
+        finally:
+            conn.close()
+        return jsonify({"message": "Student academic year progression completed successfully."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def _normalize_registration_row(r):
     if not r:

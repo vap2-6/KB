@@ -12,7 +12,8 @@ import {
   Check, 
   AlertTriangle,
   User,
-  ShieldCheck
+  ShieldCheck,
+  GraduationCap
 } from "lucide-react";
 import api from "../lib/api";
 
@@ -32,6 +33,31 @@ interface StudentDetailsProps {
   showToast: (message: string, type: "success" | "error" | "info") => void;
 }
 
+const formatAcademicYear = (val: any): string => {
+  if (!val) return "Unspecified";
+  const s = String(val).trim();
+  const sLower = s.toLowerCase();
+  if (sLower === "enrolled" || sLower === "" || sLower === "n/a" || sLower === "null") {
+    return "Unspecified";
+  }
+  if (sLower === "1" || sLower.includes("1st") || sLower === "i" || sLower === "first") {
+    return "1st Year";
+  }
+  if (sLower === "2" || sLower.includes("2nd") || sLower === "ii" || sLower === "second") {
+    return "2nd Year";
+  }
+  if (sLower === "3" || sLower.includes("3rd") || sLower === "iii" || sLower === "third") {
+    return "3rd Year";
+  }
+  if (sLower.includes("graduat")) {
+    return "Graduated";
+  }
+  if (sLower.includes("year")) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  return `${s} Year`;
+};
+
 export default function StudentDetails({ showToast }: StudentDetailsProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -43,6 +69,26 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isPromoteModalOpen, setIsPromoteModalOpen] = useState<boolean>(false);
+  const [promoting, setPromoting] = useState<boolean>(false);
+
+  const handlePromoteAcademicYear = async () => {
+    setPromoting(true);
+    try {
+      const res = await api.post('/students/promote-academic-year');
+      if (res.data && (res.data.message || res.status === 200)) {
+        showToast(res.data.message || "Academic year promoted successfully!", "success");
+        setIsPromoteModalOpen(false);
+        fetchStudents();
+      } else {
+        showToast(res.data.error || "Failed to promote academic year", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.error || err.message || "Failed to promote academic year", "error");
+    } finally {
+      setPromoting(false);
+    }
+  };
 
   // New / Edit Form States
   const [formData, setFormData] = useState<{
@@ -52,7 +98,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     year: string;
     forenoon_meal: boolean;
     afternoon_meal: boolean;
-    image_url: string;
+    email: string;
   }>({
     reg_no: "",
     name: "",
@@ -60,7 +106,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     year: "1st Year",
     forenoon_meal: true,
     afternoon_meal: true,
-    image_url: ""
+    email: ""
   });
 
   const [submitting, setSubmitting] = useState(false);
@@ -71,12 +117,16 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     try {
       // First try /api/students from staff API
       const res = await api.get('/students');
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        const mapped: Student[] = res.data.map((s: any) => ({
+      const studentRows = Array.isArray(res.data) 
+        ? res.data 
+        : (res.data?.students || res.data?.rows || []);
+
+      if (studentRows.length > 0) {
+        const mapped: Student[] = studentRows.map((s: any) => ({
           reg_no: String(s.reg_no || s.student_id || ""),
           name: s.name || "Unknown Student",
           department: s.department || s.grade_section || "General",
-          year: s.year || s.degree_year || "Enrolled",
+          year: formatAcademicYear(s.degree_year || s.year),
           image_url: s.image_url || s.image_path || s.student_image_path || "",
           forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
           afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
@@ -92,7 +142,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
           reg_no: String(s.student_id || s.reg_no || ""),
           name: s.name || "Unknown Student",
           department: s.grade_section || s.department || "General",
-          year: s.degree_year || s.year || "Enrolled",
+          year: formatAcademicYear(s.degree_year || s.year),
           image_url: s.image_url || s.image_path || "",
           forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
           afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
@@ -145,7 +195,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
       year: student.year || "1st Year",
       forenoon_meal: student.forenoon_meal !== false,
       afternoon_meal: student.afternoon_meal !== false,
-      image_url: student.image_url || ""
+      email: student.email || ""
     });
   };
 
@@ -163,7 +213,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
         degree_year: formData.year,
         forenoon_meal: formData.forenoon_meal ? 1 : 0,
         afternoon_meal: formData.afternoon_meal ? 1 : 0,
-        image_url: formData.image_url
+        email: formData.email
       };
 
       await api.put(`/records/${editingStudent.reg_no}`, payload);
@@ -187,7 +237,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
       year: "1st Year",
       forenoon_meal: true,
       afternoon_meal: true,
-      image_url: ""
+      email: ""
     });
     setIsAddModalOpen(true);
   };
@@ -209,7 +259,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
         degree_year: formData.year,
         forenoon_meal: formData.forenoon_meal ? 1 : 0,
         afternoon_meal: formData.afternoon_meal ? 1 : 0,
-        image_url: formData.image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.name)}&background=FA9632&color=fff`
+        email: formData.email
       };
 
       await api.post("/tables/student_meals/records", payload);
@@ -292,6 +342,15 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-saffron-600" : ""}`} />
               <span>Refresh</span>
+            </button>
+
+            <button
+              onClick={() => setIsPromoteModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg text-xs font-bold transition-all border border-amber-300 shadow-2xs cursor-pointer active:scale-95"
+              title="Promote all students to next academic year (1st -> 2nd -> 3rd -> Graduated)"
+            >
+              <GraduationCap className="w-4 h-4 text-amber-700" />
+              <span>Promote Academic Year</span>
             </button>
 
             <button
@@ -640,14 +699,14 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                   />
                 </div>
 
-                {/* Image URL */}
+                {/* Email Address */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Avatar Image URL (Optional)</label>
+                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Student Email Address</label>
                   <input
-                    type="url"
-                    placeholder="https://example.com/photo.jpg"
-                    value={formData.image_url}
-                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                    type="email"
+                    placeholder="student@example.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
                   />
                 </div>
@@ -778,14 +837,14 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                   />
                 </div>
 
-                {/* Image URL */}
+                {/* Email Address */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Avatar Image URL (Optional)</label>
+                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Student Email Address</label>
                   <input
-                    type="url"
-                    placeholder="https://example.com/photo.jpg"
-                    value={formData.image_url}
-                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                    type="email"
+                    placeholder="student@example.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
                   />
                 </div>
@@ -843,6 +902,60 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. PROMOTE ACADEMIC YEAR CONFIRMATION MODAL */}
+      {isPromoteModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-amber-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-200">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Promote All Academic Years?</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                This action will advance all enrolled students in the dining roster for the new academic session:
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left text-xs space-y-1.5 font-semibold text-amber-900">
+                <div className="flex items-center justify-between">
+                  <span>1st Year Students</span>
+                  <span className="font-bold text-emerald-700">➜ 2nd Year</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>2nd Year Students</span>
+                  <span className="font-bold text-emerald-700">➜ 3rd Year</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>3rd Year Students</span>
+                  <span className="font-bold text-rose-700">➜ Graduated (Meal Token Disabled)</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                Are you sure you want to proceed with annual student migration?
+              </p>
+            </div>
+
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={promoting}
+                onClick={() => setIsPromoteModalOpen(false)}
+                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={promoting}
+                onClick={handlePromoteAcademicYear}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {promoting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <GraduationCap className="w-3.5 h-3.5" />}
+                <span>Confirm Promotion</span>
               </button>
             </div>
           </div>

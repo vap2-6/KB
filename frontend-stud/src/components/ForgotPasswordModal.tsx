@@ -115,10 +115,12 @@ export default function ForgotPasswordModal({
   };
 
   const handleProceedToPortal = () => {
-    if (pendingUserSession) {
-      onSuccess(pendingUserSession.user, pendingUserSession.token, generatedPassword || undefined);
-    }
+    const session = pendingUserSession;
+    const pwd = generatedPassword;
     onClose();
+    if (session) {
+      onSuccess(session.user, session.token, pwd || undefined);
+    }
   };
 
   return (

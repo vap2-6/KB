@@ -71,21 +71,35 @@ def get_db_connection():
                     continue
         raise primary_err
 
+def _format_academic_year(val):
+    if not val:
+        return 'Unspecified'
+    s = str(val).strip()
+    s_lower = s.lower()
+    if s_lower == 'enrolled' or s_lower == '' or s_lower == 'n/a' or s_lower == 'null':
+        return 'Unspecified'
+    if s_lower == '1' or '1st' in s_lower or s_lower == 'i' or s_lower == 'first':
+        return '1st Year'
+    elif s_lower == '2' or '2nd' in s_lower or s_lower == 'ii' or s_lower == 'second':
+        return '2nd Year'
+    elif s_lower == '3' or '3rd' in s_lower or s_lower == 'iii' or s_lower == 'third':
+        return '3rd Year'
+    elif 'graduat' in s_lower:
+        return 'Graduated'
+    elif 'year' in s_lower:
+        return s.title()
+    else:
+        return f"{s} Year"
+
 def map_db_student_to_frontend(db_student):
     if not db_student:
         return None
 
     grade = db_student.get('grade_section') or 'N/A'
-    degree_yr = db_student.get('degree_year') or db_student.get('year') or ''
+    raw_yr = db_student.get('degree_year') or db_student.get('year')
 
     dept = grade
-    year = f"{degree_yr} Year" if degree_yr and not str(degree_yr).endswith('Year') else (degree_yr or 'Enrolled')
-
-    if ' - ' in grade:
-        parts = grade.split(' - ', 1)
-        dept = grade
-        if not degree_yr:
-            year = 'Enrolled'
+    year = _format_academic_year(raw_yr)
 
     img = db_student.get('image_url') or db_student.get('image_path') or db_student.get('student_image_path') or f"https://ui-avatars.com/api/?name={db_student.get('student_id')}&background=random"
 
@@ -316,8 +330,8 @@ def redeem_token(token_id=None):
             conn.close()
             return jsonify({'error': f"Token has already been redeemed at {token['redeemed_at'].isoformat() if isinstance(token['redeemed_at'], datetime) else token['redeemed_at']}"}), 409
 
-        now = datetime.now()
-        if token.get('expiry_time') and now > token['expiry_time']:
+        cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s AND expiry_time IS NOT NULL AND expiry_time <= NOW()", (token['token_uid'],))
+        if cursor.fetchone():
             cursor.execute("UPDATE meal_tokens SET status = 'expired' WHERE token_uid = %s", (token['token_uid'],))
             conn.commit()
             cursor.close()
@@ -400,3 +414,29 @@ def get_canteen_stats():
         return jsonify(stats)
     except Exception as e:
         return jsonify({'total': 0, 'redeemed': 0, 'active': 0, 'expired': 0}), 200
+
+
+
+@canteen_bp.route('/students/<reg_no>', methods=['GET'])
+@canteen_bp.route('/api/students/<reg_no>', methods=['GET'])
+def get_canteen_student(reg_no):
+    try:
+        clean_reg = (reg_no or '').strip()
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT * FROM student_meals 
+            WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s))
+               OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
+            LIMIT 1
+        """, (clean_reg, clean_reg))
+        db_student = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not db_student:
+            return jsonify({'error': f"Student record '{clean_reg}' not found"}), 404
+
+        return jsonify(map_db_student_to_frontend(db_student))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
