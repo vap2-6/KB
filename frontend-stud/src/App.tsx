@@ -46,6 +46,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Student, MealType, TokenHistoryItem } from './types';
 import MealToken from './components/MealToken';
 import ForgotPasswordModal from './components/ForgotPasswordModal';
+import StudentForgotPasswordPage from './components/StudentForgotPasswordPage';
 import rkmvcLogo from './assets/images/rkm_logo.png';
 // @ts-ignore
 import rkmPortrait from './assets/images/regenerated_image_1783062789272.png';
@@ -99,6 +100,9 @@ export default function App() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
+  const [isForgotPasswordPage, setIsForgotPasswordPage] = useState(() => {
+    return typeof window !== 'undefined' && window.location.pathname.includes('forgot-password');
+  });
 
   const hasUpperCase = /[A-Z]/.test(newPasswordInput);
   const hasLowerCase = /[a-z]/.test(newPasswordInput);
@@ -899,6 +903,18 @@ export default function App() {
   };
 
   if (!loggedInStudent) {
+    if (isForgotPasswordPage) {
+      return (
+        <StudentForgotPasswordPage
+          initialRegNo={studentId}
+          onBackToLogin={() => {
+            setIsForgotPasswordPage(false);
+            window.history.replaceState({}, '', '/student/');
+          }}
+        />
+      );
+    }
+
     return (
       <div style={{
         display: 'flex',
@@ -1127,7 +1143,8 @@ export default function App() {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          setIsForgotPasswordModalOpen(true);
+                          window.history.pushState({}, '', '/student/forgot-password');
+                          setIsForgotPasswordPage(true);
                         }}
                         style={{
                           background: 'none',
@@ -1736,30 +1753,38 @@ export default function App() {
               {activeTab === 'history' && (
                 <div className="space-y-6 w-full max-w-4xl mx-auto">
                   {/* Token History Section */}
-                  <div className="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col">
+                  <div className={`border rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col transition-colors duration-300 ${theme === 'black'
+                      ? 'bg-zinc-900 border-zinc-800 text-zinc-100 shadow-xl shadow-black/40'
+                      : 'bg-white border-zinc-200 text-zinc-900 shadow-sm'
+                    }`}>
                     <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-2 text-zinc-900">
+                      <div className={`flex items-center gap-2 ${theme === 'black' ? 'text-zinc-100' : 'text-zinc-900'}`}>
                         <History className="w-5 h-5 text-amber-600" />
                         <h3 className="text-lg font-bold">Canteen Token History</h3>
                       </div>
                     </div>
 
                     {tokenHistory.length === 0 ? (
-                      <div className="text-center py-12 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200 flex flex-col items-center justify-center">
+                      <div className={`text-center py-12 rounded-2xl border border-dashed flex flex-col items-center justify-center ${theme === 'black' ? 'bg-zinc-950/50 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                         <History className="w-8 h-8 text-zinc-300 mb-2" />
                         <p className="text-xs text-zinc-400 font-medium">No recent token generation history.</p>
                       </div>
                     ) : (
                       <div className="space-y-2.5">
                         {tokenHistory.map((historyItem) => {
-                          const isRedeemed = historyItem.status.includes('Redeemed') || historyItem.status.includes('Verified');
-                          const isActive = historyItem.status.includes('Active') || historyItem.status.includes('Issued');
+                          const isClaimed = historyItem.status.includes('Claimed') || historyItem.status.includes('Redeemed') || historyItem.status.includes('Verified') || historyItem.status.includes('used');
+                          const isActive = historyItem.status.includes('Active') || historyItem.status.includes('Issued') || historyItem.status.includes('Open');
+                          const isPending = historyItem.status.includes('Pending');
                           const isExpired = historyItem.status.includes('Expired');
+                          const isRejected = historyItem.status.includes('Rejected');
 
                           return (
                             <div
                               key={historyItem.id}
-                              className="bg-zinc-50 hover:bg-zinc-100/50 border border-zinc-200/60 rounded-2xl p-4 flex items-center justify-between text-xs transition"
+                              className={`border rounded-2xl p-4 flex items-center justify-between text-xs transition ${theme === 'black'
+                                  ? 'bg-zinc-950/70 border-zinc-800/80 hover:bg-zinc-800/50'
+                                  : 'bg-zinc-50 border-zinc-200/60 hover:bg-zinc-100/50'
+                                }`}
                             >
                               <div className="flex items-center gap-3">
                                 <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
@@ -1767,21 +1792,23 @@ export default function App() {
                                 </div>
                                 <div>
                                   <div className="flex items-center gap-2">
-                                    <p className="font-bold text-zinc-800">{historyItem.meal} Token</p>
-                                    <span className="text-[10px] font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                                    <p className={`font-bold ${theme === 'black' ? 'text-zinc-100' : 'text-zinc-800'}`}>{historyItem.meal} Token</p>
+                                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${theme === 'black' ? 'text-amber-400 bg-amber-950/50 border-amber-800/60' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
                                       {historyItem.token_id}
                                     </span>
                                   </div>
-                                  <p className="text-[10px] text-zinc-400 mt-0.5">{historyItem.date} at {historyItem.time}</p>
+                                  <p className={`text-[10px] mt-0.5 ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-400'}`}>{historyItem.date} at {historyItem.time}</p>
                                 </div>
                               </div>
-                              <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold border ${isRedeemed
-                                  ? 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                              <span className={`text-[11px] px-3 py-1 rounded-full font-extrabold uppercase tracking-wider shadow-xs ${isClaimed
+                                  ? 'bg-emerald-600 text-white border border-emerald-700'
                                   : isActive
-                                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                                    : isExpired
-                                      ? 'bg-rose-500/10 text-rose-600 border-rose-500/20'
-                                      : 'bg-zinc-500/10 text-zinc-600 border-zinc-500/20'
+                                    ? 'bg-blue-600 text-white border border-blue-700'
+                                    : isPending
+                                      ? 'bg-amber-500 text-white border border-amber-600'
+                                      : (isExpired || isRejected)
+                                        ? 'bg-rose-600 text-white border border-rose-700'
+                                        : 'bg-zinc-600 text-white border border-zinc-700'
                                 }`}>
                                 {historyItem.status}
                               </span>

@@ -80,7 +80,7 @@ def student_auth_login():
         password_valid = False
         stored_hash = student.get('password_hash') or ''
         
-        if stored_hash.startswith('$2b$') or stored_hash.startswith('$2a$'):
+        if stored_hash.startswith('$2'):
             try:
                 password_valid = bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
             except Exception:
@@ -151,9 +151,9 @@ def student_auth_login():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@student_bp.route('/auth/forgot-password', methods=['POST'])
-@student_bp.route('/api/auth/forgot-password', methods=['POST'])
-def student_forgot_password():
+@student_bp.route('/auth/check-user', methods=['POST'])
+@student_bp.route('/api/auth/check-user', methods=['POST'])
+def student_check_user():
     try:
         data = request.get_json(silent=True) or {}
         student_reg_no = (
@@ -171,6 +171,53 @@ def student_forgot_password():
             with conn.cursor() as cur:
                 clean_id = str(student_reg_no).strip()
                 cur.execute("""
+                    SELECT student_id, name, username, email FROM student_meals 
+                    WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) 
+                       OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
+                    LIMIT 1
+                """, (clean_id, clean_id))
+                student = cur.fetchone()
+        finally:
+            conn.close()
+
+        if not student:
+            return jsonify({
+                "exists": False,
+                "error": "Student with this Registration Number was not found in the database."
+            }), 404
+
+        return jsonify({
+            "exists": True,
+            "student_id": student['student_id'],
+            "name": student.get('name'),
+            "has_email": bool(student.get('email'))
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@student_bp.route('/auth/forgot-password', methods=['POST'])
+@student_bp.route('/api/auth/forgot-password', methods=['POST'])
+def student_forgot_password():
+    try:
+        data = request.get_json(silent=True) or {}
+        student_reg_no = (
+            data.get('register_no') or
+            data.get('register_number') or
+            data.get('student_id') or
+            data.get('username') or ''
+        ).strip()
+        provided_email = (data.get('email') or '').strip()
+
+        if not student_reg_no:
+            return jsonify({"error": "Please enter your Registration Number"}), 400
+        if not provided_email:
+            return jsonify({"error": "Please enter your registered Email Address"}), 400
+
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                clean_id = str(student_reg_no).strip()
+                cur.execute("""
                     SELECT * FROM student_meals 
                     WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) 
                        OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
@@ -179,47 +226,18 @@ def student_forgot_password():
                 student = cur.fetchone()
 
                 if not student:
-                    cur.execute("""
-                        SELECT * FROM meal_registrations 
-                        WHERE LOWER(TRIM(department_roll_no)) = LOWER(TRIM(%s))
-                           OR (student_id IS NOT NULL AND LOWER(TRIM(student_id)) = LOWER(TRIM(%s)))
-                        LIMIT 1
-                    """, (clean_id, clean_id))
-                    reg = cur.fetchone()
-                    if reg:
-                        s_id = reg.get('department_roll_no') or reg.get('student_id') or clean_id
-                        s_name = reg.get('student_name') or reg.get('name') or 'Student'
-                        s_dept = reg.get('degree_department') or reg.get('department') or 'Student'
-                        s_yr = reg.get('degree_year') or ''
-                        s_email = reg.get('email')
-                        s_mobile = reg.get('mobile_no') or reg.get('mobile')
-                        cur.execute("""
-                            INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pass123', 1, 1)
-                            ON DUPLICATE KEY UPDATE name=VALUES(name), degree_year=VALUES(degree_year)
-                        """, (s_id, s_name, s_id, s_dept, s_yr, s_email, s_mobile))
-                        conn.commit()
-                        cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
-                        student = cur.fetchone()
+                    return jsonify({"error": "Student with this Registration Number was not found in the database."}), 404
 
-                if not student:
-                    s_id = clean_id
-                    s_name = f"Student {s_id}"
-                    cur.execute("""
-                        INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, password_hash, forenoon_meal, afternoon_meal)
-                        VALUES (%s, %s, %s, 'Student', 'Unspecified', 'pass123', 1, 1)
-                        ON DUPLICATE KEY UPDATE name=VALUES(name)
-                    """, (s_id, s_name, s_id))
-                    conn.commit()
-                    cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
-                    student = cur.fetchone()
+                db_email = (student.get('email') or '').strip()
+                if not db_email or db_email.lower() != provided_email.lower():
+                    return jsonify({"error": "The entered email address does not match our records for this Registration Number."}), 400
 
-                # Generate a strong unique password with uppercase, lowercase, digits & symbols
+                # Generate clean unambiguous random password
                 import secrets
                 chars_upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
                 chars_lower = "abcdefghijkmnopqrstuvwxyz"
                 chars_digits = "23456789"
-                chars_symbols = "!@#$%^&*"
+                chars_symbols = "@#!"
 
                 raw_pwd = [
                     secrets.choice(chars_upper),
@@ -228,70 +246,44 @@ def student_forgot_password():
                     secrets.choice(chars_symbols)
                 ]
                 all_chars = chars_upper + chars_lower + chars_digits + chars_symbols
-                raw_pwd += [secrets.choice(all_chars) for _ in range(8)]
+                raw_pwd += [secrets.choice(all_chars) for _ in range(6)]
                 secrets.SystemRandom().shuffle(raw_pwd)
                 new_password = "".join(raw_pwd)
 
-                # Hash password with bcrypt
+                # Hash password with bcrypt and update DB FIRST
                 salt = bcrypt.gensalt()
                 hashed = bcrypt.hashpw(new_password.encode('utf-8'), salt).decode('utf-8')
-
-                # Update database
-                cur.execute("UPDATE student_meals SET password_hash = %s WHERE id = %s", (hashed, student['id']))
+                cur.execute("UPDATE student_meals SET password_hash = %s WHERE student_id = %s", (hashed, student['student_id']))
                 conn.commit()
         finally:
             conn.close()
 
-        # Retrieve student email from student_meals or fallback to meal_registrations
-        student_email = (student.get('email') or '').strip()
-        if not student_email or '@' not in student_email:
-            try:
-                conn_mail = get_db()
-                with conn_mail.cursor() as mail_cur:
-                    mail_cur.execute("""
-                        SELECT email FROM meal_registrations 
-                        WHERE LOWER(TRIM(department_roll_no)) = LOWER(TRIM(%s)) 
-                           OR (student_id IS NOT NULL AND LOWER(TRIM(student_id)) = LOWER(TRIM(%s))) 
-                        LIMIT 1
-                    """, (clean_id, clean_id))
-                    reg_row = mail_cur.fetchone()
-                    if reg_row and reg_row.get('email'):
-                        student_email = reg_row['email'].strip()
-                        mail_cur.execute("UPDATE student_meals SET email = %s WHERE id = %s", (student_email, student['id']))
-                        conn_mail.commit()
-                conn_mail.close()
-            except Exception:
-                pass
+        # Build and dispatch email
+        from admin_backend.email_service import get_smtp_config, _send_mime_message
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
 
-        # Send email containing the new password to student_email
-        email_sent = False
-        if student_email and '@' in student_email:
-            try:
-                from admin_backend.email_service import get_smtp_config, _send_mime_message
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
+        cfg = get_smtp_config()
+        msg = MIMEMultipart('alternative')
+        msg['From'] = cfg['from']
+        msg['To'] = provided_email
+        msg['Subject'] = 'Ramakrishna Mission Vidyapith - Student Portal Password Reset'
 
-                cfg = get_smtp_config()
-                msg = MIMEMultipart('alternative')
-                msg['From'] = cfg['from']
-                msg['To'] = student_email
-                msg['Subject'] = 'Ramakrishna Mission Vidyapith - Password Reset Notification'
+        text_body = f"""Dear {student.get('name', 'Student')},
 
-                text_body = f"""Dear {student.get('name', 'Student')},
-
-Your password for the RKMVC Student Meal Portal has been reset.
+Your password for the RKMVC Student Meal Portal has been reset successfully.
 
 Registration Number: {student['student_id']}
 New Password: {new_password}
 
 Login URL: {cfg.get('login_url', 'http://localhost:5050/student/')}
 
-Please keep this password secure.
+Please keep this password secure. You can now login with your new password.
 
 Ramakrishna Mission Vidyapith
 Mylapore, Chennai - 600 004."""
 
-                html_body = f"""<html><body style="font-family: Arial, sans-serif; color: #333; margin: 0; padding: 10px;">
+        html_body = f"""<html><body style="font-family: Arial, sans-serif; color: #333; margin: 0; padding: 10px;">
 <div style="max-width: 600px; margin: 0 auto; background: #fff8f0; border: 1px solid #fbd5a5; border-radius: 12px; overflow: hidden;">
 <div style="background: #ea580c; padding: 20px; text-align: center;">
 <h2 style="color: #fff; margin: 0; font-size: 18px; font-weight: bold;">Ramakrishna Mission Vidyapith</h2>
@@ -299,7 +291,7 @@ Mylapore, Chennai - 600 004."""
 </div>
 <div style="padding: 24px;">
 <p style="font-size: 14px;">Dear <strong>{student.get('name', 'Student')}</strong>,</p>
-<p style="font-size: 13px;">Your password for the Student Meal Scheme has been successfully updated.</p>
+<p style="font-size: 13px;">Your password for the Student Meal Portal has been successfully reset.</p>
 <div style="background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 18px; margin: 18px 0; text-align: center;">
 <p style="font-size: 11px; color: #9a3412; font-weight: bold; text-transform: uppercase; margin: 0 0 6px;">Your New Unique Password</p>
 <p style="font-size: 20px; font-family: monospace; font-weight: bold; color: #7c2d12; background: #fff7ed; padding: 10px 16px; border: 1px solid #fbd5a5; border-radius: 8px; margin: 0; display: inline-block;">{new_password}</p>
@@ -311,36 +303,19 @@ Ramakrishna Mission Vidyapith &bull; Mylapore, Chennai - 600 004.
 </div>
 </div></body></html>"""
 
-                msg.attach(MIMEText(text_body, 'plain'))
-                msg.attach(MIMEText(html_body, 'html'))
-                _send_mime_message(cfg, msg)
-                email_sent = True
-            except Exception as mail_err:
-                print("Failed to send password reset email:", mail_err, flush=True)
+        msg.attach(MIMEText(text_body, 'plain'))
+        msg.attach(MIMEText(html_body, 'html'))
+        
+        try:
+            _send_mime_message(cfg, msg)
+        except Exception as mail_err:
+            print("Notice: Email dispatch alert:", mail_err, flush=True)
 
-        token = generate_student_token(student)
         return jsonify({
-            "message": "Password reset successfully",
-            "new_password": new_password,
-            "email_sent": email_sent,
-            "student_email": student_email,
-            "token": token,
-            "user": {
-                "id": student['student_id'],
-                "username": student['student_id'],
-                "email": student_email or student.get('email'),
-                "role": "student",
-                "display_name": student.get('name'),
-                "student_id": student['student_id'],
-                "department": student.get('grade_section'),
-                "grade_section": student.get('grade_section'),
-                "degree_year": student.get('degree_year') or "1st Year",
-                "mobile_no": student.get('mobile_no'),
-                "forenoon_meal": bool(student.get('forenoon_meal')),
-                "afternoon_meal": bool(student.get('afternoon_meal')),
-                "image_url": student.get('image_url')
-            }
-        })
+            "message": "Password reset successfully. A new password has been sent to your email address.",
+            "success": True,
+            "student_email": provided_email
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

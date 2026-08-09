@@ -1009,6 +1009,149 @@ def auth_login():
     except Exception as e:
         return jsonify({"error": sani(e)}), 500
 
+@admin_bp.route('/auth/check-user', methods=['POST'])
+@admin_bp.route('/api/auth/check-user', methods=['POST'])
+def staff_check_user():
+    try:
+        data = request.get_json(silent=True) or {}
+        username = (data.get('username') or data.get('register_no') or data.get('staff_id') or '').strip()
+        if not username:
+            return jsonify({"error": "Username / Staff ID is required"}), 400
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, username, email, display_name, role FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(%s)) OR LOWER(TRIM(id)) = LOWER(TRIM(%s)) LIMIT 1", (username, username))
+                user = cur.fetchone()
+        finally:
+            conn.close()
+            
+        if not user:
+            return jsonify({"exists": False, "error": "Staff user with this Username / ID was not found in the database."}), 404
+            
+        return jsonify({
+            "exists": True,
+            "username": user['username'],
+            "display_name": user.get('display_name') or user['username'],
+            "role": user.get('role'),
+            "has_email": bool(user.get('email'))
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.route('/auth/forgot-password', methods=['POST'])
+@admin_bp.route('/api/auth/forgot-password', methods=['POST'])
+@admin_bp.route('/auth/staff-forgot-password', methods=['POST'])
+def staff_forgot_password():
+    try:
+        data = request.get_json(silent=True) or {}
+        username = (data.get('username') or data.get('register_no') or data.get('staff_id') or '').strip()
+        provided_email = (data.get('email') or '').strip()
+        
+        if not username:
+            return jsonify({"error": "Please enter your Staff Username / ID"}), 400
+        if not provided_email:
+            return jsonify({"error": "Please enter your registered Email Address"}), 400
+            
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(%s)) OR LOWER(TRIM(id)) = LOWER(TRIM(%s)) LIMIT 1", (username, username))
+                user = cur.fetchone()
+                
+                if not user:
+                    return jsonify({"error": "Staff user with this Username / ID was not found in the database."}), 404
+                    
+                db_email = (user.get('email') or '').strip()
+                if not db_email or db_email.lower() != provided_email.lower():
+                    return jsonify({"error": "The entered email address does not match our records for this staff account."}), 400
+                    
+                # Generate clean unambiguous random password
+                import secrets
+                chars_upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+                chars_lower = "abcdefghijkmnopqrstuvwxyz"
+                chars_digits = "23456789"
+                chars_symbols = "@#!"
+
+                raw_pwd = [
+                    secrets.choice(chars_upper),
+                    secrets.choice(chars_lower),
+                    secrets.choice(chars_digits),
+                    secrets.choice(chars_symbols)
+                ]
+                all_chars = chars_upper + chars_lower + chars_digits + chars_symbols
+                raw_pwd += [secrets.choice(all_chars) for _ in range(6)]
+                secrets.SystemRandom().shuffle(raw_pwd)
+                new_password = "".join(raw_pwd)
+                
+                import bcrypt
+                salt = bcrypt.gensalt()
+                hashed = bcrypt.hashpw(new_password.encode('utf-8'), salt).decode('utf-8')
+                cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (hashed, user['id']))
+                conn.commit()
+        finally:
+            conn.close()
+
+        # Build and dispatch email
+        from admin_backend.email_service import get_smtp_config, _send_mime_message
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        cfg = get_smtp_config()
+        msg = MIMEMultipart('alternative')
+        msg['From'] = cfg['from']
+        msg['To'] = provided_email
+        msg['Subject'] = 'Ramakrishna Mission Vidyapith - Staff Portal Password Reset'
+
+        text_body = f"""Dear {user.get('display_name') or user.get('username')},
+
+Your password for the RKMVC Staff / Admin Portal has been reset successfully.
+
+Username / Staff ID: {user['username']}
+New Password: {new_password}
+
+Login URL: http://localhost:5050/admin-login/
+
+Please keep this password secure. You can now login with your new password.
+
+Ramakrishna Mission Vidyapith
+Mylapore, Chennai - 600 004."""
+
+        html_body = f"""<html><body style="font-family: Arial, sans-serif; color: #333; margin: 0; padding: 10px;">
+<div style="max-width: 600px; margin: 0 auto; background: #fff8f0; border: 1px solid #fbd5a5; border-radius: 12px; overflow: hidden;">
+<div style="background: #ea580c; padding: 20px; text-align: center;">
+<h2 style="color: #fff; margin: 0; font-size: 18px; font-weight: bold;">Ramakrishna Mission Vidyapith</h2>
+<p style="color: #ffedd5; margin: 4px 0 0; font-size: 12px;">Staff Portal Password Reset</p>
+</div>
+<div style="padding: 24px;">
+<p style="font-size: 14px;">Dear <strong>{user.get('display_name') or user.get('username')}</strong>,</p>
+<p style="font-size: 13px;">Your password for the Staff Portal has been successfully reset.</p>
+<div style="background: #fff; border: 1px solid #fed7aa; border-radius: 10px; padding: 18px; margin: 18px 0; text-align: center;">
+<p style="font-size: 11px; color: #9a3412; font-weight: bold; text-transform: uppercase; margin: 0 0 6px;">Your New Unique Password</p>
+<p style="font-size: 20px; font-family: monospace; font-weight: bold; color: #7c2d12; background: #fff7ed; padding: 10px 16px; border: 1px solid #fbd5a5; border-radius: 8px; margin: 0; display: inline-block;">{new_password}</p>
+</div>
+<p style="font-size: 13px; color: #4b5563;">You can use this password to sign into the staff portal.</p>
+</div>
+<div style="background: #ffedd5; padding: 12px; text-align: center; font-size: 11px; color: #9a3412;">
+Ramakrishna Mission Vidyapith &bull; Mylapore, Chennai - 600 004.
+</div>
+</div></body></html>"""
+
+        msg.attach(MIMEText(text_body, 'plain'))
+        msg.attach(MIMEText(html_body, 'html'))
+
+        try:
+            _send_mime_message(cfg, msg)
+        except Exception as mail_err:
+            print("Notice: Staff password reset email alert:", mail_err, flush=True)
+
+        _log_audit(username, 'FORGOT_PASSWORD', 'users', 'Staff password reset requested')
+        return jsonify({
+            "message": "Password reset successfully. A new password has been sent to your email address.",
+            "success": True
+        }), 200
+    except Exception as e:
+        return jsonify({"error": sani(e)}), 500
+
 @admin_bp.route('/auth/me', methods=['GET'])
 @admin_bp.route('/api/auth/me', methods=['GET'])
 @admin_bp.route('/me', methods=['GET'])
