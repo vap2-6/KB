@@ -232,14 +232,14 @@ export default function StudentDetails({ students, onRefresh }: StudentDetailsPr
         </div>
       </div>
 
-      {/* View-Only Student Detail Modal */}
+      {/* Student Detail Modal */}
       {selectedStudent && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="bg-amber-500 text-white px-5 py-4 flex items-center justify-between border-b border-amber-600">
               <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                 <Users className="w-4 h-4 text-amber-100" />
-                <span>Student Record Profile (View-Only)</span>
+                <span>Student Profile</span>
               </h3>
               <button
                 onClick={() => setSelectedStudent(null)}
@@ -261,9 +261,6 @@ export default function StudentDetails({ students, onRefresh }: StudentDetailsPr
                 <div>
                   <h4 className="text-base font-extrabold text-slate-900 uppercase">{selectedStudent.name}</h4>
                   <p className="text-xs font-bold font-mono text-[#FF9933] mt-0.5">REG: {selectedStudent.reg_no}</p>
-                  <span className="inline-block mt-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-[10px] font-bold">
-                    Read-Only Record
-                  </span>
                 </div>
               </div>
 
@@ -294,13 +291,12 @@ export default function StudentDetails({ students, onRefresh }: StudentDetailsPr
               </div>
             </div>
 
-            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase">Staff Editing Disabled</span>
+            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-end">
               <button
                 onClick={() => setSelectedStudent(null)}
                 className="px-4 py-1.5 bg-[#FF9933] hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
               >
-                Close View
+                Close Profile
               </button>
             </div>
           </div>

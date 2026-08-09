@@ -483,9 +483,7 @@ def _sync_approved_registrations_to_student_meals(conn):
                 cur.execute("""
                     UPDATE student_meals sm
                     INNER JOIN meal_registrations mr 
-                       ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.department_roll_no))
-                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
-                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.student_id))
+                       ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
                        OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
                     SET sm.degree_year = mr.degree_year
                     WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
@@ -1182,8 +1180,11 @@ def get_students():
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT student_id, name, grade_section, forenoon_meal, afternoon_meal FROM student_meals ORDER BY name")
-            return jsonify(cur.fetchall())
+            cur.execute("SELECT * FROM student_meals ORDER BY name")
+            rows = cur.fetchall()
+            for r in rows:
+                r['degree_year'] = _format_degree_year(r.get('degree_year'))
+            return jsonify(rows)
     finally:
         conn.close()
 
@@ -1828,9 +1829,8 @@ def get_all_registrations():
             rows = [r for r in rows if r.get('status') == status_filter]
         return jsonify({"registrations": rows, "count": len(rows)})
 
-@admin_bp.route('/students', methods=['GET'])
 @admin_bp.route('/database/students', methods=['GET'])
-@admin_bp.route('/api/students', methods=['GET'])
+@admin_bp.route('/roster/students', methods=['GET'])
 @authenticate
 @require_role('admin')
 def get_all_students_roster():
@@ -1838,19 +1838,19 @@ def get_all_students_roster():
         conn = get_db()
         try:
             with conn.cursor() as cur:
-                # Sync missing degree_year into student_meals from meal_registrations
-                cur.execute("""
-                    UPDATE student_meals sm
-                    INNER JOIN meal_registrations mr 
-                       ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
-                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.department_roll_no))
-                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.student_id))
-                       OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
-                    SET sm.degree_year = mr.degree_year
-                    WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
-                      AND (mr.degree_year IS NOT NULL AND mr.degree_year != '');
-                """)
-                conn.commit()
+                try:
+                    cur.execute("""
+                        UPDATE student_meals sm
+                        INNER JOIN meal_registrations mr 
+                           ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
+                           OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
+                        SET sm.degree_year = mr.degree_year
+                        WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
+                          AND (mr.degree_year IS NOT NULL AND mr.degree_year != '');
+                    """)
+                    conn.commit()
+                except Exception as sync_err:
+                    print("Warning syncing degree_year:", sync_err)
 
                 cur.execute("SELECT * FROM student_meals ORDER BY name ASC")
                 rows = cur.fetchall()

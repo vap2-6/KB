@@ -1,7 +1,7 @@
 import React from 'react';
 import { Coffee, Utensils, QrCode, Clock, CheckCircle, XCircle, Loader2, RefreshCw } from 'lucide-react';
 
-export type TokenStatus = 'none' | 'not_eligible' | 'closed' | 'pending_approval' | 'open' | 'active' | 'claimed' | 'redeemed' | 'expired';
+export type TokenStatus = 'none' | 'not_eligible' | 'closed' | 'pending_approval' | 'open' | 'active' | 'claimed' | 'redeemed' | 'expired' | 'rejected';
 
 interface MealTokenProps {
   mealType: 'Breakfast' | 'Lunch';
@@ -77,6 +77,13 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
             <span>Expired</span>
           </div>
         );
+      case 'rejected':
+        return (
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs font-bold text-rose-600 transition-all">
+            <XCircle className="w-3.5 h-3.5" />
+            <span>Rejected</span>
+          </div>
+        );
       case 'pending_approval':
       default:
         return (
@@ -130,8 +137,8 @@ export default function MealToken({ mealType, status, timeLeftSeconds, qrCodeUrl
     } else if (status === 'closed') {
       buttonLabel = 'Meal Window Closed';
       buttonIcon = <Clock className="w-4 h-4" />;
-    } else if (status === 'expired') {
-      buttonLabel = 'Token Expired';
+    } else if (status === 'rejected') {
+      buttonLabel = 'Request Rejected';
       buttonIcon = <XCircle className="w-4 h-4" />;
     } else if (status === 'claimed' || status === 'redeemed') {
       buttonLabel = 'Meal Claimed ✓';

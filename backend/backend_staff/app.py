@@ -227,6 +227,7 @@ def get_students():
         
         # Map DB structure to Frontend format
         students = [map_db_student_to_frontend(s) for s in db_students]
+        return jsonify(students), 200
     except Exception as e:
         fallback_students = []
         return jsonify(fallback_students), 200

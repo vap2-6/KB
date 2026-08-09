@@ -44,13 +44,13 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
   ];
 
   const settingsItems = [
+    { id: 'meal-windows', label: 'Meal Windows', icon: Clock },
     { id: 'dining-verification', label: 'Dining Verification', icon: ChefHat },
-    { id: 'database', label: 'Students & Rosters', icon: Database },
+    { id: 'user-management', label: 'Staff & Admin Accounts', icon: Users2 },
     { id: 'import', label: 'Data Tools', icon: FileUp },
     { id: 'export', label: 'Export Meal Logs', icon: FileDown },
-    { id: 'logs', label: 'Distribution Logs', icon: FileSpreadsheet },
-    { id: 'meal-windows', label: 'Meal Windows', icon: Clock },
-    { id: 'user-management', label: 'Staff & Admin Accounts', icon: Users2 },
+    { id: 'logs', label: 'Audit Logs', icon: FileSpreadsheet },
+    { id: 'database', label: 'Students & Rosters', icon: Database },
   ];
 
   const isSettingsActive = settingsItems.some((item) => item.id === currentTab);
