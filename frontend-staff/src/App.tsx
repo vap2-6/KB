@@ -26,16 +26,24 @@ import {
   Printer,
   Filter,
   Users,
+<<<<<<< Updated upstream
   Activity,
   Search,
   Sun,
   Moon
+=======
+  HeartHandshake
+>>>>>>> Stashed changes
 } from "lucide-react";
 import { Student, Token, TerminalSession, ScanMode } from "./types";
 import QRScanner from "./components/QRScanner";
 import { IssueTokenModal, VerifyTokenModal } from "./components/Modals";
 import StudentDetails from "./components/StudentDetails";
+<<<<<<< Updated upstream
 import rkmLogo from "./assets/images/rkm_logo.png";
+=======
+import VolunteerPermitting from "./components/VolunteerPermitting";
+>>>>>>> Stashed changes
 
 // Safely wrap sessionStorage to prevent SecurityErrors in sandboxed/cross-origin iframes
 const safeSessionStorage = {
@@ -81,7 +89,7 @@ const getLocalDateString = (dateObj: Date = new Date()): string => {
 
 export default function App() {
   // Navigation & Filtering States
-  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "export" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "volunteers" | "export" | "settings">("dashboard");
   const [session, setSession] = useState<TerminalSession | null>({
     staffId: "STAFF101",
     terminalName: "Office Registration Desk 1",
@@ -1099,6 +1107,21 @@ export default function App() {
 
             <button
               onClick={() => {
+                setActiveTab("volunteers");
+                if (window.innerWidth < 768) setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "volunteers"
+                  ? "bg-amber-50 text-[#FF9933] border border-amber-200"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent"
+              }`}
+            >
+              <HeartHandshake className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
+              <span>Volunteer Passes</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab("export");
                 if (window.innerWidth < 768) setIsSidebarOpen(false);
               }}
@@ -1480,6 +1503,7 @@ export default function App() {
             </div>
           )}
 
+<<<<<<< Updated upstream
           {/* C: EXPORT PORTAL VIEW (Token Monitoring & Distribution) */}
           {activeTab === "export" && (() => {
             const baseExportTokens = tokens.filter((t) => {
@@ -1491,6 +1515,19 @@ export default function App() {
                   if (startDate && itemDateStr < startDate) return false;
                   if (endDate && itemDateStr > endDate) return false;
                 }
+=======
+          {/* VOLUNTEER PERMITTING VIEW */}
+          {activeTab === "volunteers" && (
+            <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
+              <VolunteerPermitting staffId={session?.staffId} showToast={showToast} playBeep={playBeep} />
+            </div>
+          )}
+
+          {/* C: EXPORT PORTAL VIEW (Statement Ledger) */}
+          {activeTab === "export" && (
+            <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
+              
+>>>>>>> Stashed changes
 
                 // Meal check
                 if (mealFilter !== "all" && mealFilter !== "") {

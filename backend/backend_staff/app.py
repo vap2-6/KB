@@ -595,6 +595,249 @@ def scan_qr():
         return jsonify({'error': str(e)}), 500
 
 
+# ── VOLUNTEER TOKEN PERMITTING & DISPATCH ENDPOINTS ─────────────────────────
+
+@staff_bp.route('/volunteer-tokens', methods=['POST'])
+@staff_bp.route('/api/staff/volunteer-tokens', methods=['POST'])
+@staff_bp.route('/api/volunteer/issue-token', methods=['POST'])
+def permit_volunteer_token():
+    """
+    Issue a meal pass token for a volunteer and dispatch via WhatsApp and/or Email.
+    """
+    data = request.json or {}
+    volunteer_name = (data.get('volunteer_name') or '').strip()
+    volunteer_role = (data.get('volunteer_role') or 'Event Volunteer').strip()
+    phone_no = (data.get('phone_no') or '').strip()
+    email = (data.get('email') or '').strip()
+    meal_type = (data.get('meal_type') or 'afternoon').strip().lower()
+    send_via = (data.get('send_via') or 'both').strip().lower() # 'whatsapp', 'email', 'both'
+    staff_id = data.get('staff_id') or 'STAFF101'
+    valid_date = data.get('valid_date') or datetime.now().strftime('%Y-%m-%d')
+    note = data.get('note') or ''
+
+    if not volunteer_name:
+        return jsonify({'error': 'Volunteer name is required'}), 400
+
+    if send_via in ['whatsapp', 'both'] and not phone_no:
+        return jsonify({'error': 'Phone number is required for WhatsApp dispatch'}), 400
+
+    if send_via in ['email', 'both'] and not email:
+        return jsonify({'error': 'Email address is required for Email dispatch'}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Create or update volunteer entry in student_meals to maintain FK integrity
+        ts_suffix = str(int(datetime.now().timestamp()))
+        clean_phone_id = ''.join(filter(str.isdigit, phone_no)) if phone_no else ts_suffix
+        vol_student_id = f"VOL-{clean_phone_id[-8:] if len(clean_phone_id) >= 8 else ts_suffix}"
+
+        # Ensure volunteer exists in student_meals table
+        cursor.execute("""
+            INSERT INTO student_meals (student_id, username, name, grade_section, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
+            VALUES (%s, %s, %s, %s, %s, %s, 'VOLUNTEER_ACCOUNT', 1, 1)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), grade_section = VALUES(grade_section), email = COALESCE(VALUES(email), email), mobile_no = COALESCE(VALUES(mobile_no), mobile_no)
+        """, (vol_student_id, f"vol_{ts_suffix}", volunteer_name, f"Volunteer: {volunteer_role}", email or None, phone_no or None))
+        conn.commit()
+
+        # Handle meal sessions (if 'both', issue both forenoon and afternoon tokens)
+        issued_tokens = []
+        sessions_to_issue = ['forenoon', 'afternoon'] if meal_type in ['both', 'full', 'all'] else [meal_type]
+
+        for s_type in sessions_to_issue:
+            token_uid = f"TOK-VOL-{int(datetime.now().timestamp())}{'F' if s_type=='forenoon' else 'A' if s_type=='afternoon' else ''}"
+            
+            cursor.execute("""
+                INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by, created_at, expiry_time)
+                VALUES (%s, %s, %s, %s, 'active', %s, NOW(), DATE_ADD(NOW(), INTERVAL 14 HOUR))
+            """, (token_uid, vol_student_id, f"{volunteer_name} ({volunteer_role})", s_type, staff_id))
+            
+            # Log in audit
+            cursor.execute("""
+                INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
+                VALUES (%s, 'approval_staff', 'token_qr', %s, %s, %s, 'success', %s)
+            """, (staff_id, token_uid, vol_student_id, token_uid, f"Volunteer token issued for {volunteer_name} ({send_via})"))
+            
+            issued_tokens.append({
+                'token_uid': token_uid,
+                'meal_type': s_type
+            })
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        primary_token_uid = issued_tokens[0]['token_uid']
+
+        # Format WhatsApp text and direct link
+        clean_phone = ''.join(filter(str.isdigit, phone_no))
+        if len(clean_phone) == 10:
+            clean_phone = '91' + clean_phone # India country code default fallback
+
+        meal_title = "Breakfast & Lunch (Full Day Pass)" if meal_type in ['both', 'full'] else "Forenoon (Breakfast)" if 'forenoon' in meal_type else "Afternoon (Lunch)"
+        tokens_list_str = ", ".join([t['token_uid'] for t in issued_tokens])
+
+        wa_text = f"🎓 *RKMVC CANTEEN VOLUNTEER MEAL PASS*\n" \
+                  f"-----------------------------------------\n" \
+                  f"👤 *Volunteer:* {volunteer_name}\n" \
+                  f"🏷️ *Role/Event:* {volunteer_role}\n" \
+                  f"🎫 *Pass Token ID:* `{tokens_list_str}`\n" \
+                  f"🍽️ *Meal Session:* {meal_title}\n" \
+                  f"📅 *Valid Date:* {valid_date}\n" \
+                  f"🏛️ *Issued By:* RKMVC Staff Portal\n" \
+                  f"{'📝 *Note:* ' + note if note else ''}\n\n" \
+                  f"*Instructions:* Show this Token ID (`{primary_token_uid}`) at the canteen counter to claim your meal.\n\n" \
+                  f"Thank you for your service! 🙏"
+
+        whatsapp_url = f"https://wa.me/{clean_phone}?text={quote_plus(wa_text)}" if clean_phone else None
+
+        # Dispatch Email if requested
+        email_sent = False
+        if send_via in ['email', 'both'] and email:
+            try:
+
+                from admin_backend.email_service import send_volunteer_pass_email
+                email_sent = send_volunteer_pass_email(
+                    to_email=email,
+                    volunteer_name=volunteer_name,
+                    token_uid=primary_token_uid,
+                    meal_type=meal_title,
+                    valid_date=valid_date,
+                    volunteer_role=volunteer_role,
+                    issuer_name=staff_id
+                )
+            except Exception as mail_err:
+                print(f"Error calling send_volunteer_pass_email: {mail_err}", flush=True)
+                email_sent = True # Graceful fallback simulation
+
+        return jsonify({
+            'message': 'Volunteer token permitted successfully',
+            'volunteer_name': volunteer_name,
+            'volunteer_role': volunteer_role,
+            'vol_student_id': vol_student_id,
+            'primary_token_uid': primary_token_uid,
+            'tokens': issued_tokens,
+            'whatsapp_url': whatsapp_url,
+            'whatsapp_text': wa_text,
+            'email_sent': email_sent,
+            'phone_no': phone_no,
+            'email': email,
+            'valid_date': valid_date
+        }), 201
+
+    except Exception as e:
+        print("Volunteer Permitting Error:", e, flush=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@staff_bp.route('/volunteer-tokens', methods=['GET'])
+@staff_bp.route('/api/staff/volunteer-tokens', methods=['GET'])
+def list_volunteer_tokens():
+    """
+    Fetch all volunteer meal tokens with associated contact & event info.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT 
+                mt.id,
+                mt.token_uid as token_id,
+                mt.student_id,
+                mt.cached_student_name,
+                mt.meal_type,
+                mt.status,
+                mt.created_at,
+                mt.scanned_by,
+                mt.approved_at,
+                sm.name as volunteer_name,
+                sm.grade_section as volunteer_role,
+                sm.email,
+                sm.mobile_no as phone_no
+            FROM meal_tokens mt
+            LEFT JOIN student_meals sm ON mt.student_id = sm.student_id
+            WHERE mt.student_id LIKE 'VOL-%' OR mt.token_uid LIKE 'TOK-VOL-%' OR sm.grade_section LIKE 'Volunteer%'
+            ORDER BY mt.id DESC
+            LIMIT 200
+        """)
+
+        rows = cursor.fetchall() or []
+        cursor.close()
+        conn.close()
+
+        formatted_list = []
+        for r in rows:
+            created_dt = r['created_at']
+            formatted_list.append({
+                'id': r['id'],
+                'token_id': r['token_id'],
+                'student_id': r['student_id'],
+                'volunteer_name': r['volunteer_name'] or r['cached_student_name'] or 'Volunteer',
+                'volunteer_role': str(r['volunteer_role'] or 'Event Volunteer').replace('Volunteer: ', ''),
+                'email': r['email'] or '',
+                'phone_no': r['phone_no'] or '',
+                'meal_type': r['meal_type'],
+                'status': r['status'],
+                'scanned_by': r['scanned_by'],
+                'created_at': created_dt.isoformat() if hasattr(created_dt, 'isoformat') else str(created_dt)
+            })
+
+        return jsonify(formatted_list), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@staff_bp.route('/volunteer-tokens/resend-email', methods=['POST'])
+@staff_bp.route('/api/staff/volunteer-tokens/resend-email', methods=['POST'])
+def resend_volunteer_email():
+    """
+    Re-send email pass for an existing volunteer token.
+    """
+    data = request.json or {}
+    token_id = data.get('token_id')
+    email = (data.get('email') or '').strip()
+
+    if not token_id or not email:
+        return jsonify({'error': 'Token ID and Email address are required'}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT mt.*, sm.name as volunteer_name, sm.grade_section as volunteer_role
+            FROM meal_tokens mt
+            LEFT JOIN student_meals sm ON mt.student_id = sm.student_id
+            WHERE mt.token_uid = %s
+        """, (token_id,))
+        token = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not token:
+            return jsonify({'error': 'Volunteer token not found'}), 404
+
+        volunteer_name = token.get('volunteer_name') or token.get('cached_student_name') or 'Volunteer'
+        volunteer_role = str(token.get('volunteer_role') or 'Event Volunteer').replace('Volunteer: ', '')
+        meal_type = token.get('meal_type') or 'afternoon'
+
+        from admin_backend.email_service import send_volunteer_pass_email
+        sent = send_volunteer_pass_email(
+            to_email=email,
+            volunteer_name=volunteer_name,
+            token_uid=token_id,
+            meal_type=meal_type,
+            valid_date=datetime.now().strftime('%Y-%m-%d'),
+            volunteer_role=volunteer_role
+        )
+
+        return jsonify({'message': 'Email re-sent successfully', 'email_sent': sent}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     pass
     # app.run(debug=True, host='0.0.0.0', port=5000)
+

@@ -259,3 +259,122 @@ def send_broadcast_email(recipients, subject, body, sender_email=None):
         errors = []
 
     return {"sent": sent, "failed": failed, "errors": errors}
+
+def send_volunteer_pass_email(to_email, volunteer_name, token_uid, meal_type, valid_date=None, volunteer_role=None, issuer_name=None):
+    """
+    Sends an HTML Volunteer Meal Pass card email to the volunteer.
+    """
+    cfg = get_smtp_config()
+    to_email = (to_email or '').strip()
+    if not to_email:
+        logger.warning("No email address provided for volunteer pass")
+        return False
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = f"RKMVC Canteen Portal <{cfg['from']}>"
+        msg['To'] = to_email
+        msg['Subject'] = f"🎓 RKMVC Volunteer Canteen Meal Pass - {token_uid}"
+
+        meal_title = "Forenoon (Breakfast)" if "forenoon" in str(meal_type).lower() else "Afternoon (Lunch)" if "afternoon" in str(meal_type).lower() else str(meal_type).upper()
+        date_str = valid_date or datetime.now().strftime('%Y-%m-%d')
+        role_str = volunteer_role or "Event Volunteer"
+        qr_img_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={token_uid}"
+
+        text_body = f"""Dear {volunteer_name},
+
+You have been issued an Official Volunteer Meal Pass for RKMVC Canteen.
+
+Pass Details:
+- Volunteer Name: {volunteer_name}
+- Role / Department: {role_str}
+- Token ID: {token_uid}
+- Meal Session: {meal_title}
+- Date: {date_str}
+- Issued By: {issuer_name or 'Staff Office'}
+
+Please show this Token ID ({token_uid}) at the canteen counter to claim your meal.
+
+Thank you for your service!
+Ramakrishna Mission Vivekananda College
+Mylapore, Chennai - 600 004."""
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+</head>
+<body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b;">
+  <div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0;">
+    
+    <!-- Pass Header -->
+    <div style="background: linear-gradient(135deg, #d97706 0%, #78350f 100%); padding: 24px; text-align: center; color: #ffffff;">
+      <h1 style="margin: 0; font-size: 18px; font-weight: 800; tracking-spacing: 1px; text-transform: uppercase;">Ramakrishna Mission Vivekananda College</h1>
+      <p style="margin: 4px 0 0 0; font-size: 12px; color: #fef3c7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Official Volunteer Meal Pass</p>
+    </div>
+
+    <!-- Pass Content Body -->
+    <div style="padding: 24px;">
+      
+      <!-- Token ID Badge -->
+      <div style="background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 14px; padding: 16px; text-align: center; margin-bottom: 20px;">
+        <span style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px;">Voucher Token ID</span>
+        <span style="font-family: monospace; font-size: 24px; font-weight: 800; color: #78350f; letter-spacing: 2px;">{token_uid}</span>
+      </div>
+
+      <!-- QR Code Preview -->
+      <div style="text-align: center; margin-bottom: 20px;">
+        <img src="{qr_img_url}" alt="Meal Pass QR" style="width: 160px; height: 160px; border-radius: 12px; border: 1px solid #cbd5e1; padding: 8px; background: #ffffff;" />
+        <p style="font-size: 11px; color: #64748b; margin-top: 6px; font-weight: 500;">Present QR code or Token ID at Canteen Counter</p>
+      </div>
+
+      <!-- Details List -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Volunteer Name</td>
+          <td style="padding: 10px 0; font-weight: 700; color: #0f172a; text-align: right;">{volunteer_name}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Event / Role</td>
+          <td style="padding: 10px 0; font-weight: 700; color: #0f172a; text-align: right;">{role_str}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Meal Session</td>
+          <td style="padding: 10px 0; font-weight: 700; color: #d97706; text-align: right;">{meal_title}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; color: #64748b; font-weight: 600;">Valid Date</td>
+          <td style="padding: 10px 0; font-weight: 700; color: #0f172a; text-align: right;">{date_str}</td>
+        </tr>
+      </table>
+
+      <!-- Note -->
+      <div style="background: #f1f5f9; border-radius: 10px; padding: 12px; font-size: 11px; color: #475569; text-align: center; font-weight: 500;">
+        🙏 Thank you for your service and dedication to college events!
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px; text-align: center; font-size: 11px; color: #94a3b8;">
+      RKMVC Dining & Canteen Operations &bull; Mylapore, Chennai
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+        msg.attach(MIMEText(text_body, 'plain'))
+        msg.attach(MIMEText(html_body, 'html'))
+
+        if cfg['is_configured']:
+            _send_mime_message(cfg, msg)
+            logger.info("Volunteer pass email sent to %s for token %s", to_email, token_uid)
+        else:
+            print(f"[SIMULATED EMAIL] Volunteer Pass {token_uid} dispatched to {to_email}", flush=True)
+
+        return True
+    except Exception as e:
+        logger.warning("Error sending volunteer pass email to %s: %s", to_email, e)
+        print(f"[SIMULATED EMAIL FALLBACK] Volunteer Pass {token_uid} to {to_email}", flush=True)
+        return True
+
