@@ -160,17 +160,10 @@ System data import/export telemetry tracker.
 
 ---
 
-## Testing Seed Credentials
-
-The database automatically initializes with the following default accounts:
+## System Authentication
 
 1. **System Operators (`users`)**:
-   * `admin` / `adminpassword` (Role: `admin`)
-   * `STAFF101` / `staffpassword` (Role: `approval_staff`)
-   * `STAFF102` / `staffpassword` (Role: `approval_staff`)
-   * `CANTEEN01` / `staffpassword` (Role: `canteen_staff`)
+   * Administrative and staff accounts (`admin`, `approval_staff`, `canteen_staff`) are managed securely via system initialization and the Admin Portal user management module.
 
 2. **Registered Students (`student_meals`)**:
-   * `243301034021` / `pass123` (Name: `Chen Kai`, Dept: `Computer Applications`)
-   * `STU101` / `pass123` (Name: `Arjun Sharma`, Dept: `B.Sc. Comp Sci`)
-   * `STU102` / `pass123` (Name: `Priya Patel`, Dept: `B.Sc. Comp Sci`)
+   * No student records are pre-seeded. Students register via the registration workflow (`/register/`) or administrative import.

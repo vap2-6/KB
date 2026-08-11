@@ -152,3 +152,12 @@ Everyday token generation report should be generated as pdf file and stored in a
 ### Date of Birth (DOB) & Automatic Age Engine
 - **Dynamic Age Calculation**: The form automatically computes the applicant's exact age in years from their entered Date of Birth, displaying a real-time Age badge (`Age: 20 Yrs`).
 - **MySQL Table Column Mapping (`meal_registrations`)**: The `meal_registrations` table schema explicitly maintains an `age INT` column placed next to `date_of_birth VARCHAR(50)`, populated automatically on form submission.
+
+### Forget Password - All login pages
+- Forget Password button in the login page should redirect to the Forget Password page.
+- On click of  Forget Password button, should check the database for the user (for both  student and staff login pages).
+- The Forget Password page should have a form to enter the registration number and email address.
+- When the submit button in the Forget Password page is clicked, the form should check if the registration number and email address are correct and if true send a email to the particular email address with a randomly generated password.
+- And the randomly generated password should be updated in the database for the particular user. So when the user logs in with the randomly generated password, he should be able to login successfully.
+
+- Separate login page for students and staff, and also separate pages for their forget password page.

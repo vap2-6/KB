@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { LogIn, Shield, Info, Eye, EyeOff } from 'lucide-react';
 import api from '../lib/api';
+import StaffForgotPasswordPage from './StaffForgotPasswordPage';
 // @ts-ignore
 import rkmLogo from '../assets/images/rkm_logo.png';
 // @ts-ignore
@@ -31,6 +32,9 @@ export default function AuthModule({ onLoginSuccess, showToast }: AuthModuleProp
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [fade, setFade] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isForgotPasswordPage, setIsForgotPasswordPage] = useState(() => {
+    return typeof window !== 'undefined' && window.location.pathname.includes('forgot-password');
+  });
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -125,6 +129,18 @@ export default function AuthModule({ onLoginSuccess, showToast }: AuthModuleProp
       setLoading(false);
     }
   };
+
+  if (isForgotPasswordPage) {
+    return (
+      <StaffForgotPasswordPage
+        initialUsername={username}
+        onBackToLogin={() => {
+          setIsForgotPasswordPage(false);
+          window.history.replaceState({}, '', '/admin-login/');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-[#FFFBF7] transition-colors duration-200">
@@ -226,9 +242,22 @@ export default function AuthModule({ onLoginSuccess, showToast }: AuthModuleProp
                         />
                       </div>
                       <div>
-                        <label className="block text-[10.5px] font-bold uppercase tracking-wide text-slate-600 mb-1">
-                          Password
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[10.5px] font-bold uppercase tracking-wide text-slate-600">
+                            Password
+                          </label>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              window.history.pushState({}, '', '/admin-login/forgot-password');
+                              setIsForgotPasswordPage(true);
+                            }}
+                            className="text-[10.5px] font-bold text-[#FA9632] hover:text-[#E58222] transition-colors cursor-pointer"
+                          >
+                            Forgot Password?
+                          </button>
+                        </div>
                         <div className="relative">
                           <input
                             type={showPassword ? "text" : "password"}

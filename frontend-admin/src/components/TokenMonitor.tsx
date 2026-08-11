@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Activity, RefreshCw, Search, Calendar, CheckCircle, XCircle, Loader, Sun, Moon, Filter, Download } from 'lucide-react';
+import { Activity, RefreshCw, Search, Calendar, CheckCircle, XCircle, Loader, Sun, Moon, Filter, Download, ChevronDown, FileText, Printer } from 'lucide-react';
 import api from '../lib/api';
 
 interface TokenRecord {
@@ -60,7 +60,7 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
     try {
       const params = new URLSearchParams({ limit: '50', date_from: dateFrom, date_to: dateTo });
       if (mealFilter) params.set('meal_type', mealFilter);
-      if (statusFilter) params.set('status', statusFilter);
+      if (statusFilter && statusFilter !== 'approved') params.set('status', statusFilter);
       const res = await api.get(`/tokens?${params}`);
       setTokens(res.data?.tokens || res.data || []);
     } catch {
@@ -77,15 +77,15 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [dateFrom, dateTo, mealFilter, statusFilter]);
 
-  const generated = tokens.filter(t => t.status && ['approved', 'token_issued', 'redeemed', 'staff_verified'].includes(t.status.toLowerCase()));
-  const redeemedCount = tokens.filter(t => t.status && t.status.toLowerCase() === 'redeemed').length;
-  const expiredCount = tokens.filter(t => t.status && ['expired', 'rejected'].includes(t.status.toLowerCase())).length;
-
   const filteredTokens = tokens.filter(t =>
     (t.token_code || t.token_uid || '').toLowerCase().includes(search.toLowerCase()) ||
     (t.student_id || '').toLowerCase().includes(search.toLowerCase()) ||
     (t.student_name || '').toLowerCase().includes(search.toLowerCase())
   );
+
+  const generatedCount = filteredTokens.length;
+  const redeemedCount = filteredTokens.filter(t => t.status && t.status.toLowerCase() === 'redeemed').length;
+  const expiredCount = filteredTokens.filter(t => t.status && ['expired', 'rejected'].includes(t.status.toLowerCase())).length;
 
   // Generic client-side CSV builder + downloader (mirrors Dashboard's report downloads)
   const downloadCSV = (filename: string, rows: any[], columns?: string[]) => {
@@ -152,18 +152,59 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
 
         {/* Status Pills */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white border border-saffron-100 rounded-2xl p-5 shadow-sm">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Tokens Generated</span>
-            <span className="text-2xl font-extrabold text-saffron-600 mt-1 block">{generated.length}</span>
-          </div>
-          <div className="bg-white border border-saffron-100 rounded-2xl p-5 shadow-sm">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Tokens Redeemed</span>
-            <span className="text-2xl font-extrabold text-emerald-600 mt-1 block">{redeemedCount}</span>
-          </div>
-          <div className="bg-white border border-saffron-100 rounded-2xl p-5 shadow-sm">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Expired / Rejected</span>
-            <span className="text-2xl font-extrabold text-rose-500 mt-1 block">{expiredCount}</span>
-          </div>
+          {/* Card 1: Tokens Generated */}
+          <button
+            type="button"
+            onClick={() => setStatusFilter(statusFilter === 'approved' ? '' : 'approved')}
+            className={`rounded-2xl p-5 shadow-sm text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+              (statusFilter === 'approved' || statusFilter === '')
+                ? 'ring-2 ring-saffron-500 bg-saffron-50/60 border-saffron-300'
+                : 'bg-white border-saffron-100 hover:border-saffron-300'
+            }`}
+            title="Click to filter Generated tokens"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-display">Tokens Generated</span>
+              {(statusFilter === 'approved' || statusFilter === '') && <span className="text-[9px] font-black uppercase bg-saffron-200 text-saffron-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
+            </div>
+            <span className="text-2xl font-extrabold text-saffron-600 mt-1 block font-mono">{generatedCount}</span>
+          </button>
+
+          {/* Card 2: Tokens Redeemed */}
+          <button
+            type="button"
+            onClick={() => setStatusFilter(statusFilter === 'redeemed' ? '' : 'redeemed')}
+            className={`rounded-2xl p-5 shadow-sm text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+              statusFilter === 'redeemed'
+                ? 'ring-2 ring-emerald-500 bg-emerald-50/60 border-emerald-300'
+                : 'bg-white border-saffron-100 hover:border-emerald-300'
+            }`}
+            title="Click to filter Redeemed tokens"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-display">Tokens Redeemed</span>
+              {statusFilter === 'redeemed' && <span className="text-[9px] font-black uppercase bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
+            </div>
+            <span className="text-2xl font-extrabold text-emerald-600 mt-1 block font-mono">{redeemedCount}</span>
+          </button>
+
+          {/* Card 3: Expired / Rejected */}
+          <button
+            type="button"
+            onClick={() => setStatusFilter(statusFilter === 'expired' ? '' : 'expired')}
+            className={`rounded-2xl p-5 shadow-sm text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+              (statusFilter === 'expired' || statusFilter === 'rejected')
+                ? 'ring-2 ring-rose-500 bg-rose-50/60 border-rose-300'
+                : 'bg-white border-saffron-100 hover:border-rose-300'
+            }`}
+            title="Click to filter Expired / Rejected tokens"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-display">Expired / Rejected</span>
+              {(statusFilter === 'expired' || statusFilter === 'rejected') && <span className="text-[9px] font-black uppercase bg-rose-200 text-rose-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
+            </div>
+            <span className="text-2xl font-extrabold text-rose-500 mt-1 block font-mono">{expiredCount}</span>
+          </button>
         </div>
 
         {/* Search & Date Filter Bar */}
@@ -207,7 +248,6 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
                 <option value="">All Meals</option>
                 <option value="Breakfast">Breakfast</option>
                 <option value="Lunch">Lunch</option>
-                <option value="Dinner">Dinner</option>
               </select>
             </div>
 
@@ -217,10 +257,10 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
               className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-saffron-500 text-slate-500"
             >
               <option value="">All Statuses</option>
-              <option value="redeemed">Redeemed</option>
               <option value="approved">Generated</option>
-              <option value="staff_verified">Verified</option>
+              <option value="redeemed">Redeemed</option>
               <option value="expired">Expired</option>
+              <option value="rejected">Rejected</option>
             </select>
 
             <button onClick={fetchData} className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors" title="Refresh">

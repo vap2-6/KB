@@ -25,12 +25,25 @@ import {
   ArrowDownToLine,
   Printer,
   Filter,
-  Users
+  Users,
+<<<<<<< Updated upstream
+  Activity,
+  Search,
+  Sun,
+  Moon
+=======
+  HeartHandshake
+>>>>>>> Stashed changes
 } from "lucide-react";
 import { Student, Token, TerminalSession, ScanMode } from "./types";
 import QRScanner from "./components/QRScanner";
 import { IssueTokenModal, VerifyTokenModal } from "./components/Modals";
 import StudentDetails from "./components/StudentDetails";
+<<<<<<< Updated upstream
+import rkmLogo from "./assets/images/rkm_logo.png";
+=======
+import VolunteerPermitting from "./components/VolunteerPermitting";
+>>>>>>> Stashed changes
 
 // Safely wrap sessionStorage to prevent SecurityErrors in sandboxed/cross-origin iframes
 const safeSessionStorage = {
@@ -58,18 +71,25 @@ const safeSessionStorage = {
   }
 };
 
-// Helper to get local date string in YYYY-MM-DD format
-const getLocalDateString = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// Helper to get date string in YYYY-MM-DD format strictly following Indian Standard Time (IST, UTC+5:30)
+const getLocalDateString = (dateObj: Date = new Date()): string => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(dateObj);
+  } catch {
+    const istMs = dateObj.getTime() + (5.5 * 60 * 60 * 1000);
+    return new Date(istMs).toISOString().split('T')[0];
+  }
 };
 
 export default function App() {
   // Navigation & Filtering States
-  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "export" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "volunteers" | "export" | "settings">("dashboard");
   const [session, setSession] = useState<TerminalSession | null>({
     staffId: "STAFF101",
     terminalName: "Office Registration Desk 1",
@@ -83,10 +103,13 @@ export default function App() {
     return typeof window !== "undefined" ? window.innerWidth >= 768 : true;
   });
 
-  // Bank Statement filters & states
+  // Bank Statement / Token Monitoring filters & states
   const [startDate, setStartDate] = useState<string>(() => getLocalDateString());
   const [endDate, setEndDate] = useState<string>(() => getLocalDateString());
-  const [statementFilter, setStatementFilter] = useState<"all" | "approved" | "active" | "rejected">("all");
+  const [statementFilter, setStatementFilter] = useState<"all" | "approved" | "active" | "rejected" | "redeemed" | "expired">("all");
+  const [exportSearch, setExportSearch] = useState<string>("");
+  const [mealFilter, setMealFilter] = useState<string>("all");
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -214,6 +237,17 @@ export default function App() {
     fetchTokens(initialStaffId);
   }, []);
 
+  // Auto-refresh token monitoring stream every 10 seconds when export tab is active
+  useEffect(() => {
+    if (activeTab === "export") {
+      fetchTokens();
+      const interval = setInterval(() => {
+        fetchTokens();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
   const handleToggleSound = (val: boolean) => {
     setSoundEnabled(val);
     try {
@@ -285,19 +319,7 @@ export default function App() {
     } catch (e) {
       console.warn("Using local student fallback (API offline):", e);
     }
-    // Seed dataset matching database records
-    setStudents([
-      { reg_no: "243301034021", name: "Chen Kai", year: "1st Year", department: "Computer Applications", image_url: "https://ui-avatars.com/api/?name=Chen+Kai&background=random" },
-      { reg_no: "STU101", name: "Arjun Sharma", year: "2nd Year", department: "B.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Arjun+Sharma&background=random" },
-      { reg_no: "STU102", name: "Priya Patel", year: "3rd Year", department: "B.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Priya+Patel&background=random" },
-      { reg_no: "STU103", name: "Rahul Nair", year: "1st Year", department: "B.Sc. Physics", image_url: "https://ui-avatars.com/api/?name=Rahul+Nair&background=random" },
-      { reg_no: "STU104", name: "Sneha Rao", year: "2nd Year", department: "B.Sc. Chemistry", image_url: "https://ui-avatars.com/api/?name=Sneha+Rao&background=random" },
-      { reg_no: "STU105", name: "Vikram Singh", year: "3rd Year", department: "B.Com General", image_url: "https://ui-avatars.com/api/?name=Vikram+Singh&background=random" },
-      { reg_no: "STU106", name: "Ananya Reddy", year: "1st Year", department: "B.A. Economics", image_url: "https://ui-avatars.com/api/?name=Ananya+Reddy&background=random" },
-      { reg_no: "STU107", name: "Karthik Krishnan", year: "2nd Year", department: "M.Sc. Comp Sci", image_url: "https://ui-avatars.com/api/?name=Karthik+Krishnan&background=random" },
-      { reg_no: "220101", name: "Alice Smith", year: "2nd Year", department: "Computer Science", image_url: "https://ui-avatars.com/api/?name=Alice+Smith&background=random" },
-      { reg_no: "220102", name: "Bob Johnson", year: "3rd Year", department: "Mathematics", image_url: "https://ui-avatars.com/api/?name=Bob+Johnson&background=random" },
-    ]);
+    setStudents([]);
   };
 
   const fetchTokens = async (staffId?: string) => {
@@ -327,7 +349,7 @@ export default function App() {
   };
 
   // Sound cue feedback using Web Audio API
-  const playBeep = (type: "success" | "warning" | "error") => {
+  const playBeep = (type: "success" | "warning" | "error" | "info") => {
     if (!soundEnabled) return;
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -849,22 +871,34 @@ export default function App() {
     }
   };
 
-  // Stats Counters
-  const totalTokens = tokens.length;
-  const approvedTokens = tokens.filter((t) => {
+  // Present Day Tokens Filter in IST (resets automatically when calendar moves to next day in IST)
+  const todayISTDateStr = getLocalDateString(new Date());
+  const todayTokens = tokens.filter((t) => {
+    try {
+      if (!t.created_at) return true;
+      const itemISTDateStr = getLocalDateString(new Date(t.created_at));
+      return itemISTDateStr === todayISTDateStr;
+    } catch {
+      return true;
+    }
+  });
+
+  // Stats Counters (Present Day Only)
+  const totalTokens = todayTokens.length;
+  const approvedTokens = todayTokens.filter((t) => {
     const st = (t.status || '').toLowerCase();
     return st === "approved" || st === "redeemed" || st === "claimed";
   }).length;
-  const activeTokens = tokens.filter((t) => {
+  const activeTokens = todayTokens.filter((t) => {
     const st = (t.status || '').toLowerCase();
     return st === "active" || st === "awaiting_scan" || st === "token_issued";
   }).length;
-  const rejectedTokens = tokens.filter((t) => {
+  const rejectedTokens = todayTokens.filter((t) => {
     const st = (t.status || '').toLowerCase();
     return st === "rejected" || st === "expired";
   }).length;
 
-  const filteredTokens = tokens.filter((tok) => {
+  const filteredTokens = todayTokens.filter((tok) => {
     if (statusFilter === "all") return true;
     const st = (tok.status || '').toLowerCase();
     if (statusFilter === "rejected") {
@@ -926,10 +960,9 @@ export default function App() {
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 flex items-center justify-center shrink-0">
                 <img 
-                  src="https://upload.wikimedia.org/wikipedia/commons/e/e4/Emblem-Ramakrishna-Mission-Transparent.png" 
+                  src={rkmLogo} 
                   alt="RKMVC Logo" 
                   className="w-full h-full object-contain"
-                  referrerPolicy="no-referrer"
                 />
               </div>
               <div className="text-left">
@@ -1074,6 +1107,21 @@ export default function App() {
 
             <button
               onClick={() => {
+                setActiveTab("volunteers");
+                if (window.innerWidth < 768) setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "volunteers"
+                  ? "bg-amber-50 text-[#FF9933] border border-amber-200"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent"
+              }`}
+            >
+              <HeartHandshake className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
+              <span>Volunteer Passes</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab("export");
                 if (window.innerWidth < 768) setIsSidebarOpen(false);
               }}
@@ -1138,10 +1186,9 @@ export default function App() {
             <div className="flex items-center gap-2.5 pl-1" id="main-brand-header">
               <div className="w-9 h-9 flex items-center justify-center shrink-0">
                 <img 
-                  src="https://upload.wikimedia.org/wikipedia/commons/e/e4/Emblem-Ramakrishna-Mission-Transparent.png" 
+                  src={rkmLogo} 
                   alt="RKMVC Logo" 
                   className="w-full h-full object-contain"
-                  referrerPolicy="no-referrer"
                 />
               </div>
               <div className="text-left hidden sm:block">
@@ -1369,23 +1416,17 @@ export default function App() {
 
                 </div>
 
-                {/* Right Column (7 Columns) - Active Token Registry database table */}
+                {/* Right Column (7 Columns) - Present Day Token History database table */}
                 <div className="lg:col-span-7 bg-white border border-slate-200 rounded-3xl p-6 shadow-md space-y-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                  <div className="border-b border-slate-100 pb-4">
                     <h3 className="text-md font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2">
-                      <span>Token Registry</span>
+                      <span>Token History</span>
                       {statusFilter !== "all" && (
                         <span className="text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full">
                           Filter: {statusFilter}
                         </span>
                       )}
                     </h3>
-                    <button 
-                      onClick={() => setStatusFilter("all")} 
-                      className="text-[10px] font-bold text-slate-400 hover:text-[#FF9933] hover:underline text-left cursor-pointer transition-all"
-                    >
-                      Reset Filter
-                    </button>
                   </div>
 
                   {filteredTokens.length === 0 ? (
@@ -1462,255 +1503,418 @@ export default function App() {
             </div>
           )}
 
+<<<<<<< Updated upstream
+          {/* C: EXPORT PORTAL VIEW (Token Monitoring & Distribution) */}
+          {activeTab === "export" && (() => {
+            const baseExportTokens = tokens.filter((t) => {
+              try {
+                // Date range check
+                if (t.created_at) {
+                  const tDate = new Date(t.created_at);
+                  const itemDateStr = tDate.toISOString().split("T")[0];
+                  if (startDate && itemDateStr < startDate) return false;
+                  if (endDate && itemDateStr > endDate) return false;
+                }
+=======
+          {/* VOLUNTEER PERMITTING VIEW */}
+          {activeTab === "volunteers" && (
+            <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
+              <VolunteerPermitting staffId={session?.staffId} showToast={showToast} playBeep={playBeep} />
+            </div>
+          )}
+
           {/* C: EXPORT PORTAL VIEW (Statement Ledger) */}
           {activeTab === "export" && (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
               
+>>>>>>> Stashed changes
 
+                // Meal check
+                if (mealFilter !== "all" && mealFilter !== "") {
+                  const m = (t.meal_type || '').toLowerCase();
+                  const mf = mealFilter.toLowerCase();
+                  if (!m.includes(mf)) return false;
+                }
 
-              {/* Filter controls panel */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white border border-slate-200 p-5 rounded-3xl shadow-sm" id="statement-filters-panel">
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-extrabold uppercase tracking-widest text-slate-400 font-display">
-                    Start Date
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                      <Calendar className="w-3.5 h-3.5" />
+                // Search query check
+                if (exportSearch.trim()) {
+                  const q = exportSearch.trim().toLowerCase();
+                  const student = students.find((s) => (s.reg_no || '').trim().toLowerCase() === (t.student_reg || '').trim().toLowerCase());
+                  const studentName = student ? student.name : (t.student_name || t.name || '');
+                  const code = t.token_id || '';
+                  const reg = t.student_reg || '';
+
+                  const match = code.toLowerCase().includes(q) || reg.toLowerCase().includes(q) || studentName.toLowerCase().includes(q);
+                  if (!match) return false;
+                }
+
+                return true;
+              } catch {
+                return false;
+              }
+            });
+
+            const generatedCount = baseExportTokens.length;
+            const redeemedCount = baseExportTokens.filter(t => (t.status || '').toLowerCase() === 'redeemed').length;
+            const expiredRejectedCount = baseExportTokens.filter(t => ['expired', 'rejected'].includes((t.status || '').toLowerCase())).length;
+
+            const filteredExportTokens = baseExportTokens.filter((t) => {
+              if (statementFilter === "all" || statementFilter === "approved") return true;
+              const st = (t.status || '').toLowerCase();
+              if (statementFilter === "redeemed") return st === "redeemed";
+              if (statementFilter === "expired") return st === "expired" || st === "rejected";
+              if (statementFilter === "rejected") return st === "rejected";
+              return true;
+            });
+
+            const handleExportFormat = (format: 'csv' | 'excel' | 'pdf' | 'json') => {
+              if (filteredExportTokens.length === 0) {
+                showToast("Export Notice", `No records found between ${startDate} and ${endDate}.`, "warning");
+                return;
+              }
+
+              if (format === 'json') {
+                const jsonRecords = filteredExportTokens.map(t => {
+                  const student = students.find(s => s.reg_no === t.student_reg);
+                  return {
+                    token_code: t.token_id,
+                    student_id: t.student_reg,
+                    student_name: student ? student.name : (t.student_name || t.name || "Unknown"),
+                    department: student ? student.department : "Unknown",
+                    meal_type: t.meal_type,
+                    status: t.status,
+                    generated_at: t.created_at,
+                    redeemed_at: (t.status || "").toLowerCase() === "redeemed" ? t.created_at : null
+                  };
+                });
+                const blob = new Blob([JSON.stringify(jsonRecords, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.setAttribute("download", `Token_Activity_${startDate}_to_${endDate}.json`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showToast("JSON Exported", `Exported ${filteredExportTokens.length} record(s) as JSON!`, "success");
+              } else if (format === 'pdf') {
+                handlePrintStatement();
+              } else {
+                const headers = ["TOKEN CODE", "STUDENT ID", "STUDENT NAME", "DEPARTMENT", "MEAL TYPE", "STATUS", "GENERATED AT", "REDEEMED AT"];
+                const rows = filteredExportTokens.map(t => {
+                  const student = students.find(s => s.reg_no === t.student_reg);
+                  const name = student ? student.name : (t.student_name || t.name || "Unknown");
+                  const dept = student ? student.department : "Unknown";
+                  const meal = t.meal_type || "Standard";
+                  const status = (t.status || "").toUpperCase();
+                  const genAt = t.created_at ? new Date(t.created_at).toLocaleString() : "-";
+                  const redAt = (t.status || "").toLowerCase() === "redeemed" && t.created_at ? new Date(t.created_at).toLocaleString() : "-";
+                  return [t.token_id, t.student_reg, name, dept, meal, status, genAt, redAt];
+                });
+
+                const csvContent = [headers, ...rows]
+                  .map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+                  .join("\n");
+
+                const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.setAttribute("download", `Token_Activity_${startDate}_to_${endDate}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showToast("Exported", `Exported ${filteredExportTokens.length} record(s) as ${format === 'excel' ? 'Excel' : 'CSV'}!`, "success");
+              }
+            };
+
+            return (
+              <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
+                {/* Header Title Bar */}
+                <div className="flex flex-wrap gap-4 items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight font-display">
+                      <Activity className="h-5 w-5 text-amber-500" />
+                      Token Monitoring & Distribution
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1">Live token activity and monitoring</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1.5 text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      Auto-refresh every 10s
+                    </span>
+
+                    {/* Export Menu Dropdown Button */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowExportMenu(!showExportMenu)}
+                        className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 border border-transparent"
+                        id="btn-statement-csv-export"
+                        title="Export token activity stream"
+                      >
+                        <ArrowDownToLine className="w-3.5 h-3.5" />
+                        <span>Export</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {showExportMenu && (
+                        <>
+                          <div className="fixed inset-0 z-30" onClick={() => setShowExportMenu(false)} />
+                          <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl z-40 p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                            <div className="px-3 py-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 font-display">
+                              Select Export Format
+                            </div>
+
+                            <button
+                              onClick={() => { setShowExportMenu(false); handleExportFormat('csv'); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-900 rounded-xl transition-colors cursor-pointer text-left"
+                            >
+                              <FileText className="w-4 h-4 text-emerald-600" />
+                              <span>CSV Document (.csv)</span>
+                            </button>
+
+                            <button
+                              onClick={() => { setShowExportMenu(false); handleExportFormat('excel'); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-900 rounded-xl transition-colors cursor-pointer text-left"
+                            >
+                              <FileText className="w-4 h-4 text-green-600" />
+                              <span>Excel Spreadsheet (.xlsx)</span>
+                            </button>
+
+                            <button
+                              onClick={() => { setShowExportMenu(false); handleExportFormat('pdf'); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-900 rounded-xl transition-colors cursor-pointer text-left"
+                            >
+                              <Printer className="w-4 h-4 text-rose-600" />
+                              <span>PDF Document (.pdf)</span>
+                            </button>
+
+                            <button
+                              onClick={() => { setShowExportMenu(false); handleExportFormat('json'); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-900 rounded-xl transition-colors cursor-pointer text-left"
+                            >
+                              <FileText className="w-4 h-4 text-indigo-600" />
+                              <span>JSON Format (.json)</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value || getLocalDateString())}
-                      className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold py-2.5 pl-9 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
-                    />
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-extrabold uppercase tracking-widest text-slate-400 font-display">
-                    End Date
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                      <Calendar className="w-3.5 h-3.5" />
+                {/* Interactive Status KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Card 1: TOKENS GENERATED */}
+                  <button
+                    type="button"
+                    onClick={() => setStatementFilter(statementFilter === 'approved' ? 'all' : 'approved')}
+                    className={`rounded-2xl p-5 shadow-xs text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+                      statementFilter === 'approved'
+                        ? 'ring-2 ring-amber-500 bg-amber-50/60 border-amber-300'
+                        : 'bg-white border-amber-100/80 hover:border-amber-300'
+                    }`}
+                    title="Click to filter Generated tokens"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block font-display">TOKENS GENERATED</span>
+                      {statementFilter === 'approved' && <span className="text-[9px] font-black uppercase bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
                     </div>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value || getLocalDateString())}
-                      className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold py-2.5 pl-9 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
-                    />
-                  </div>
+                    <span className="text-2xl font-black text-amber-600 mt-1 block font-mono">{generatedCount}</span>
+                  </button>
+
+                  {/* Card 2: TOKENS REDEEMED */}
+                  <button
+                    type="button"
+                    onClick={() => setStatementFilter(statementFilter === 'redeemed' ? 'all' : 'redeemed')}
+                    className={`rounded-2xl p-5 shadow-xs text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+                      statementFilter === 'redeemed'
+                        ? 'ring-2 ring-emerald-500 bg-emerald-50/60 border-emerald-300'
+                        : 'bg-white border-amber-100/80 hover:border-emerald-300'
+                    }`}
+                    title="Click to filter Redeemed tokens"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block font-display">TOKENS REDEEMED</span>
+                      {statementFilter === 'redeemed' && <span className="text-[9px] font-black uppercase bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
+                    </div>
+                    <span className="text-2xl font-black text-emerald-600 mt-1 block font-mono">{redeemedCount}</span>
+                  </button>
+
+                  {/* Card 3: EXPIRED / REJECTED */}
+                  <button
+                    type="button"
+                    onClick={() => setStatementFilter(statementFilter === 'expired' ? 'all' : 'expired')}
+                    className={`rounded-2xl p-5 shadow-xs text-left cursor-pointer transition-all duration-200 hover:scale-[1.01] active:scale-95 border ${
+                      (statementFilter === 'expired' || statementFilter === 'rejected')
+                        ? 'ring-2 ring-rose-500 bg-rose-50/60 border-rose-300'
+                        : 'bg-white border-amber-100/80 hover:border-rose-300'
+                    }`}
+                    title="Click to filter Expired / Rejected tokens"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block font-display">EXPIRED / REJECTED</span>
+                      {(statementFilter === 'expired' || statementFilter === 'rejected') && <span className="text-[9px] font-black uppercase bg-rose-200 text-rose-900 px-2 py-0.5 rounded-md">FILTER ACTIVE</span>}
+                    </div>
+                    <span className="text-2xl font-black text-rose-500 mt-1 block font-mono">{expiredRejectedCount}</span>
+                  </button>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-extrabold uppercase tracking-widest text-slate-400 font-display">
-                    Verification Status
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                      <Filter className="w-3.5 h-3.5" />
+                {/* Search & Filter Control Bar */}
+                <div className="bg-white border border-amber-100/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4" id="statement-filters-panel">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by Token Code, Student ID, or Name..."
+                      value={exportSearch}
+                      onChange={(e) => setExportSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all bg-slate-50/50 text-slate-800"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-medium text-slate-700"
+                      />
+                      <span className="text-slate-400 font-medium">to</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-medium text-slate-700"
+                      />
                     </div>
+
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <Filter className="h-3.5 w-3.5 text-slate-400" />
+                      <select
+                        value={mealFilter}
+                        onChange={(e) => setMealFilter(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-medium text-slate-700 cursor-pointer"
+                      >
+                        <option value="all">All Meals</option>
+                        <option value="Breakfast">Breakfast</option>
+                        <option value="Lunch">Lunch</option>
+                      </select>
+                    </div>
+
                     <select
                       value={statementFilter}
-                      onChange={(e: any) => setStatementFilter(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold py-2.5 pl-9 pr-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all cursor-pointer"
+                      onChange={(e) => setStatementFilter(e.target.value as any)}
+                      className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white font-medium text-slate-600 cursor-pointer"
                     >
                       <option value="all">All Statuses</option>
-                      <option value="approved">Cleared (Approved)</option>
-                      <option value="active">Pending (Active)</option>
-                      <option value="rejected">Bounced (Rejected)</option>
+                      <option value="approved">Generated</option>
+                      <option value="redeemed">Redeemed</option>
+                      <option value="expired">Expired</option>
+                      <option value="rejected">Rejected</option>
                     </select>
+
+                    <button
+                      type="button"
+                      onClick={() => fetchTokens()}
+                      className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
+                      title="Refresh Stream"
+                    >
+                      <RefreshCw className="h-4 w-4 text-slate-500" />
+                    </button>
                   </div>
                 </div>
-              </div>
 
-
-
-              {/* Ledger entries table */}
-              <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm" id="statement-ledger-table-container">
-                <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 font-display">
-                    Statement Ledger Particulars
-                  </span>
-                  <span className="text-[10px] font-extrabold text-slate-500 font-mono">
-                    Showing {tokens.filter(t => {
-                      try {
-                        const tDate = new Date(t.created_at);
-                        const itemDateStr = tDate.toISOString().split("T")[0];
-                        if (startDate && itemDateStr < startDate) return false;
-                        if (endDate && itemDateStr > endDate) return false;
-                        if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                        return true;
-                      } catch (e) {
-                        return false;
-                      }
-                    }).length} matching entries
-                  </span>
-                </div>
-
-                {tokens.filter(t => {
-                  try {
-                    const tDate = new Date(t.created_at);
-                    const itemDateStr = tDate.toISOString().split("T")[0];
-                    if (startDate && itemDateStr < startDate) return false;
-                    if (endDate && itemDateStr > endDate) return false;
-                    if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                    return true;
-                  } catch (e) {
-                    return false;
-                  }
-                }).length === 0 ? (
-                  <div className="text-center py-16 px-4 text-slate-400 italic text-xs space-y-2">
-                    <AlertCircle className="w-6 h-6 text-slate-300 mx-auto" />
-                    <p className="font-semibold text-slate-500">No entries found for specified criteria</p>
-                    <p className="text-[10px] text-slate-400 leading-relaxed max-w-[280px] mx-auto">Try adjusting your date range or verification status filters above.</p>
+                {/* Live Token Activity Table Container */}
+                <div className="bg-white border border-amber-100/80 rounded-2xl shadow-xs overflow-hidden" id="statement-ledger-table-container">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="font-bold text-sm text-slate-900 font-display">Live Token Activity Stream</h3>
+                    <span className="text-xs text-slate-400 font-medium font-mono">{filteredExportTokens.length} record(s)</span>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto max-h-[400px]">
-                    <table className="w-full text-left text-[11px] border-collapse" id="print-statement-ledger-table">
-                      <thead className="bg-slate-100/80 text-slate-700 font-black uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
-                        <tr>
-                          <th className="p-4 font-display">Date & Time</th>
-                          <th className="p-4 font-display">Transaction Ref</th>
-                          <th className="p-4 font-display">Student ID</th>
-                          <th className="p-4 font-display text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-150">
-                        {tokens
-                          .filter(t => {
-                            try {
-                              const tDate = new Date(t.created_at);
-                              const itemDateStr = tDate.toISOString().split("T")[0];
-                              if (startDate && itemDateStr < startDate) return false;
-                              if (endDate && itemDateStr > endDate) return false;
-                              if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                              return true;
-                            } catch (e) {
-                              return false;
-                            }
-                          })
-                          .map((item) => {
-                            const student = students.find(s => s.reg_no === item.student_reg);
+
+                  {filteredExportTokens.length === 0 ? (
+                    <div className="py-16 text-center text-xs text-slate-400 italic space-y-2">
+                      <AlertCircle className="w-6 h-6 text-slate-300 mx-auto" />
+                      <p className="font-semibold text-slate-500">No token activity found matching criteria</p>
+                      <p className="text-[10px] text-slate-400 max-w-[280px] mx-auto">Try adjusting search term, date range, or status filters above.</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[520px] overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-xs" id="print-statement-ledger-table">
+                        <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                          <tr>
+                            <th className="py-3.5 px-6 font-display">Token Code</th>
+                            <th className="py-3.5 px-6 font-display">Student</th>
+                            <th className="py-3.5 px-6 font-display">Meal</th>
+                            <th className="py-3.5 px-6 font-display">Status</th>
+                            <th className="py-3.5 px-6 font-display">Generated At</th>
+                            <th className="py-3.5 px-6 font-display">Redeemed At</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredExportTokens.map((t) => {
+                            const student = students.find((s) => (s.reg_no || '').trim().toLowerCase() === (t.student_reg || '').trim().toLowerCase());
+                            const displayName = student ? student.name : (t.student_name || t.name || t.student_reg || 'Student');
+                            const stLower = (t.status || '').toLowerCase();
+                            const isBreakfast = (t.meal_type || '').toLowerCase().includes('break') || (t.meal_type || '').toLowerCase().includes('forenoon');
+
                             return (
-                              <tr key={item.token_id} className="hover:bg-slate-50/50 font-semibold text-slate-700">
-                                <td className="p-4 font-mono text-[10px] text-slate-500">
-                                  {new Date(item.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                              <tr key={t.token_id} className="hover:bg-slate-50/50 text-slate-600 transition-colors font-semibold">
+                                <td className="py-3.5 px-6 font-mono font-bold text-amber-600">
+                                  {t.token_id}
                                 </td>
-                                <td className="p-4">
-                                  <p className="font-mono text-indigo-600 font-bold">{item.token_id}</p>
-                                  <p className="text-[9px] text-slate-400 font-medium">{item.meal_type} Meal</p>
+                                <td className="py-3.5 px-6">
+                                  <span className="font-bold text-slate-900 block">{displayName}</span>
+                                  <span className="text-[10px] text-slate-400 block font-mono font-normal">{t.student_reg}</span>
                                 </td>
-                                <td className="p-4">
-                                  <p className="text-slate-900 font-extrabold">{student ? student.name : "Unknown student"}</p>
-                                  <p className="text-[9px] text-slate-400 font-mono font-medium">Reg: {item.student_reg}</p>
-                                </td>
-                                <td className="p-4 text-right">
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                                    item.status === "approved"
-                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                                      : item.status === "rejected"
-                                      ? "bg-rose-50 text-rose-700 border border-rose-100"
-                                      : "bg-amber-50 text-amber-700 border border-amber-100"
-                                  }`}>
-                                    {item.status === "approved" ? "Cleared" : item.status === "rejected" ? "Declined" : "Pending"}
+                                <td className="py-3.5 px-6">
+                                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                                    {isBreakfast ? (
+                                      <Sun className="h-3.5 w-3.5 text-amber-500" />
+                                    ) : (
+                                      <Moon className="h-3.5 w-3.5 text-indigo-500" />
+                                    )}
+                                    <span className="capitalize">{t.meal_type}</span>
                                   </span>
+                                </td>
+                                <td className="py-3.5 px-6">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider border ${
+                                      stLower === 'redeemed'
+                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                                        : stLower === 'approved' || stLower === 'token_issued'
+                                        ? 'bg-blue-50 text-blue-600 border-blue-200'
+                                        : stLower === 'expired'
+                                        ? 'bg-rose-50 text-rose-600 border-rose-200'
+                                        : stLower === 'rejected'
+                                        ? 'bg-red-50 text-red-600 border-red-200'
+                                        : 'bg-amber-50 text-amber-600 border-amber-200'
+                                    }`}
+                                  >
+                                    {stLower === 'redeemed' && <CheckCircle2 className="h-3 w-3" />}
+                                    {stLower === 'expired' ? 'EXPIRED' : stLower === 'rejected' ? 'REJECTED' : stLower === 'redeemed' ? 'REDEEMED' : stLower === 'approved' ? 'GENERATED' : t.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-6 text-slate-400 font-mono text-[11px]">
+                                  {t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
+                                </td>
+                                <td className="py-3.5 px-6 text-slate-400 font-mono text-[11px]">
+                                  {stLower === 'redeemed' && t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
                                 </td>
                               </tr>
                             );
                           })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-
-              {/* Bottom Actions section */}
-              <div className="flex justify-end gap-3 pt-4" id="statement-bottom-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const statementTokens = tokens.filter(t => {
-                      try {
-                        const tDate = new Date(t.created_at);
-                        const itemDateStr = tDate.toISOString().split("T")[0];
-                        if (startDate && itemDateStr < startDate) return false;
-                        if (endDate && itemDateStr > endDate) return false;
-                        if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                        return true;
-                      } catch (e) {
-                        return false;
-                      }
-                    });
-
-                    const headers = ["Transaction Ref (Token ID)", "Date & Time", "Student ID", "Student Name", "Department", "Meal Type", "Status"];
-                    const rows = statementTokens.map(t => {
-                      const student = students.find(s => s.reg_no === t.student_reg);
-                      const name = student ? student.name : "Unknown";
-                      const dept = student ? student.department : "Unknown";
-                      const meal = t.meal_type;
-                      const status = t.status.toUpperCase();
-                      const date = new Date(t.created_at).toLocaleString();
-                      return [t.token_id, date, t.student_reg, name, dept, meal, status];
-                    });
-
-                    const csvContent = [headers, ...rows]
-                      .map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-                      .join("\n");
-
-                    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement("a");
-                    link.setAttribute("href", url);
-                    link.setAttribute("download", `MealFlow_Statement_${startDate}_to_${endDate}.csv`);
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                  disabled={tokens.filter(t => {
-                    try {
-                      const tDate = new Date(t.created_at);
-                      const itemDateStr = tDate.toISOString().split("T")[0];
-                      if (startDate && itemDateStr < startDate) return false;
-                      if (endDate && itemDateStr > endDate) return false;
-                      if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                      return true;
-                    } catch (e) {
-                      return false;
-                    }
-                  }).length === 0}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-emerald-500/10 flex items-center gap-1.5 cursor-pointer border border-transparent"
-                  id="btn-statement-csv-export"
-                >
-                  <ArrowDownToLine className="w-3.5 h-3.5" />
-                  <span>CSV Export</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePrintStatement}
-                  disabled={tokens.filter(t => {
-                    try {
-                      const tDate = new Date(t.created_at);
-                      const itemDateStr = tDate.toISOString().split("T")[0];
-                      if (startDate && itemDateStr < startDate) return false;
-                      if (endDate && itemDateStr > endDate) return false;
-                      if (statementFilter !== "all" && t.status !== statementFilter) return false;
-                      return true;
-                    } catch (e) {
-                      return false;
-                    }
-                  }).length === 0}
-                  className="bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer border border-transparent"
-                  id="btn-statement-print"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print</span>
-                </button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* C: SETTINGS VIEW */}
           {activeTab === "settings" && (

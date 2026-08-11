@@ -1,29 +1,10 @@
-# RKMVC MealFlow — Default Login Credentials
+# RKMVC MealFlow — Credential & Authentication Policy
 
-## Admin Portal (`/admin-login/`)
+## System Access & Operator Accounts
 
-| Field    | Value           |
-|----------|-----------------|
-| Username | `rkmvc_admin`   |
-| Password | `Admin@RKMVC2025` |
+Access to the Administrative Dashboard (`/admin/`), Approval Staff Terminal (`/staff/`), and Canteen Counter Terminal is strictly managed using role-based authentication (`admin`, `approval_staff`, `canteen_staff`).
 
-> These credentials are guaranteed to work on every startup. The account is re-created automatically if it is ever deleted.
+- Operator credentials are provisioned during initial setup or created via the Admin Portal user management module.
+- System configurations (JWT secrets, DB credentials, API keys) must be set via the root `.env` configuration file.
 
----
-
-## Other Seeded Accounts
-
-These are created only on first run (when the database is empty):
-
-| Role            | Username    | Password        |
-|-----------------|-------------|-----------------|
-| Admin           | `admin`     | `adminpassword` |
-| Approval Staff  | `staff`     | `staffpassword` |
-| Approval Staff  | `STAFF101`  | `staffpassword` |
-| Approval Staff  | `STAFF102`  | `staffpassword` |
-| Canteen Staff   | `CANTEEN01` | `staffpassword` |
-| Canteen Staff   | `CANTEEN02` | `staffpassword` |
-
----
-
-> **Security note:** Change all passwords immediately after first login in a production environment.
+> **Security Note:** Default passwords should be changed immediately after system deployment.

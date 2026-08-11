@@ -449,15 +449,7 @@ export async function initDb() {
         { name: 'afternoon_meal', type: 'BOOLEAN', nullable: false },
         { name: 'last_served_date', type: 'DATE', nullable: true }
       ],
-      rows: [
-        { student_id: 'STU101', name: 'Arjun Sharma', grade_section: 'B.Sc. Comp Sci', forenoon_meal: true, afternoon_meal: true, last_served_date: '2026-07-01' },
-        { student_id: 'STU102', name: 'Priya Patel', grade_section: 'B.Sc. Comp Sci', forenoon_meal: true, afternoon_meal: false, last_served_date: '2026-07-01' },
-        { student_id: 'STU103', name: 'Rahul Nair', grade_section: 'B.Sc. Physics', forenoon_meal: false, afternoon_meal: true, last_served_date: '2026-07-01' },
-        { student_id: 'STU104', name: 'Sneha Rao', grade_section: 'B.Sc. Chemistry', forenoon_meal: true, afternoon_meal: true, last_served_date: '2026-07-01' },
-        { student_id: 'STU105', name: 'Vikram Singh', grade_section: 'B.Com General', forenoon_meal: false, afternoon_meal: false, last_served_date: '2026-07-01' },
-        { student_id: 'STU106', name: 'Ananya Reddy', grade_section: 'B.A. Economics', forenoon_meal: true, afternoon_meal: true, last_served_date: '2026-07-01' },
-        { student_id: 'STU107', name: 'Karthik Krishnan', grade_section: 'M.Sc. Comp Sci', forenoon_meal: true, afternoon_meal: true, last_served_date: '2026-07-01' }
-      ]
+      rows: []
     };
 
     cachedDb.tables.meal_distribution_log = {
@@ -470,13 +462,7 @@ export async function initDb() {
         { name: 'served_by', type: 'TEXT', nullable: false },
         { name: 'timestamp', type: 'DATE', nullable: false }
       ],
-      rows: [
-        { log_id: 'LOG001', student_id: 'STU101', session_type: 'Forenoon', status: 'Distributed', served_by: 'admin', timestamp: '2026-07-01T08:30:00.000Z' },
-        { log_id: 'LOG002', student_id: 'STU101', session_type: 'Afternoon', status: 'Distributed', served_by: 'admin', timestamp: '2026-07-01T13:15:00.000Z' },
-        { log_id: 'LOG003', student_id: 'STU102', session_type: 'Forenoon', status: 'Distributed', served_by: 'admin', timestamp: '2026-07-01T08:32:00.000Z' },
-        { log_id: 'LOG004', student_id: 'STU103', session_type: 'Afternoon', status: 'Distributed', served_by: 'user', timestamp: '2026-07-01T13:20:00.000Z' },
-        { log_id: 'LOG005', student_id: 'STU104', session_type: 'Forenoon', status: 'Distributed', served_by: 'user', timestamp: '2026-07-01T08:45:00.000Z' }
-      ]
+      rows: []
     };
     changed = true;
   }

@@ -67,6 +67,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
 
   // Modals
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState<boolean>(false);
@@ -99,6 +100,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     forenoon_meal: boolean;
     afternoon_meal: boolean;
     email: string;
+    mobile_no: string;
   }>({
     reg_no: "",
     name: "",
@@ -106,7 +108,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     year: "1st Year",
     forenoon_meal: true,
     afternoon_meal: true,
-    email: ""
+    email: "",
+    mobile_no: ""
   });
 
   const [submitting, setSubmitting] = useState(false);
@@ -195,7 +198,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
       year: student.year || "1st Year",
       forenoon_meal: student.forenoon_meal !== false,
       afternoon_meal: student.afternoon_meal !== false,
-      email: student.email || ""
+      email: student.email || "",
+      mobile_no: student.mobile_no || ""
     });
   };
 
@@ -213,7 +217,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
         degree_year: formData.year,
         forenoon_meal: formData.forenoon_meal ? 1 : 0,
         afternoon_meal: formData.afternoon_meal ? 1 : 0,
-        email: formData.email
+        email: formData.email,
+        mobile_no: formData.mobile_no
       };
 
       await api.put(`/records/${editingStudent.reg_no}`, payload);
@@ -237,7 +242,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
       year: "1st Year",
       forenoon_meal: true,
       afternoon_meal: true,
-      email: ""
+      email: "",
+      mobile_no: ""
     });
     setIsAddModalOpen(true);
   };
@@ -259,7 +265,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
         degree_year: formData.year,
         forenoon_meal: formData.forenoon_meal ? 1 : 0,
         afternoon_meal: formData.afternoon_meal ? 1 : 0,
-        email: formData.email
+        email: formData.email,
+        mobile_no: formData.mobile_no
       };
 
       await api.post("/tables/student_meals/records", payload);
@@ -443,7 +450,8 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                   return (
                     <tr
                       key={student.reg_no}
-                      className="hover:bg-saffron-50/20 transition-colors group"
+                      onClick={() => setViewingStudent(student)}
+                      className="hover:bg-saffron-50/20 transition-colors group cursor-pointer"
                     >
                       {/* # Counter */}
                       <td className="py-3 px-4 text-center font-bold text-slate-400 group-hover:text-slate-600">
@@ -524,14 +532,10 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
-                            onClick={() => handleOpenEdit(student)}
-                            className="p-1.5 text-slate-600 hover:text-saffron-600 hover:bg-saffron-50 rounded-lg border border-slate-200 transition-colors cursor-pointer shadow-2xs"
-                            title="Edit Student Record"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setStudentToDelete(student)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStudentToDelete(student);
+                            }}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors cursor-pointer shadow-2xs"
                             title="Delete Student Record"
                           >
@@ -700,13 +704,25 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                 </div>
 
                 {/* Email Address */}
-                <div className="sm:col-span-2">
+                <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Student Email Address</label>
                   <input
                     type="email"
                     placeholder="student@example.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
+                  />
+                </div>
+
+                {/* Mobile Number */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Mobile Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 9876543210"
+                    value={formData.mobile_no}
+                    onChange={(e) => setFormData({ ...formData, mobile_no: e.target.value })}
                     className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
                   />
                 </div>
@@ -838,13 +854,25 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                 </div>
 
                 {/* Email Address */}
-                <div className="sm:col-span-2">
+                <div>
                   <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Student Email Address</label>
                   <input
                     type="email"
                     placeholder="student@example.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
+                  />
+                </div>
+
+                {/* Mobile Number */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Mobile Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 9876543210"
+                    value={formData.mobile_no}
+                    onChange={(e) => setFormData({ ...formData, mobile_no: e.target.value })}
                     className="w-full bg-slate-50 text-slate-900 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 font-medium"
                   />
                 </div>
@@ -956,6 +984,97 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
               >
                 {promoting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <GraduationCap className="w-3.5 h-3.5" />}
                 <span>Confirm Promotion</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Student Profile Detail Modal */}
+      {viewingStudent && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-saffron-500 text-white px-5 py-4 flex items-center justify-between border-b border-saffron-600">
+              <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <Users className="w-4 h-4 text-saffron-100" />
+                <span>Student Profile</span>
+              </h3>
+              <button
+                onClick={() => setViewingStudent(null)}
+                className="text-saffron-100 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
+                <div className="w-16 h-20 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shadow-2xs shrink-0">
+                  <img
+                    src={getStudentAvatarUrl(viewingStudent)}
+                    alt={viewingStudent.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900 uppercase">{viewingStudent.name}</h4>
+                  <p className="text-xs font-bold font-mono text-saffron-600 mt-0.5">REG: {viewingStudent.reg_no}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Program / Department</span>
+                  <span className="font-bold text-slate-800 block mt-0.5">{viewingStudent.department}</span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Semester / Year</span>
+                  <span className="font-bold text-slate-800 block mt-0.5">{viewingStudent.year}</span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Email Address</span>
+                  <span className="font-bold text-slate-800 block mt-0.5 break-all">{viewingStudent.email || "N/A"}</span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Mobile No.</span>
+                  <span className="font-bold text-slate-800 block mt-0.5">{viewingStudent.mobile_no || "N/A"}</span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Forenoon Meal</span>
+                  <span className={`font-bold block mt-0.5 ${viewingStudent.forenoon_meal !== false ? "text-emerald-700" : "text-slate-400"}`}>
+                    {viewingStudent.forenoon_meal !== false ? "Eligible" : "Not Enrolled"}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Afternoon Meal</span>
+                  <span className={`font-bold block mt-0.5 ${viewingStudent.afternoon_meal !== false ? "text-emerald-700" : "text-slate-400"}`}>
+                    {viewingStudent.afternoon_meal !== false ? "Eligible" : "Not Enrolled"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  const studentToEdit = viewingStudent;
+                  setViewingStudent(null);
+                  handleOpenEdit(studentToEdit);
+                }}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all border border-slate-300 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Edit Record</span>
+              </button>
+
+              <button
+                onClick={() => setViewingStudent(null)}
+                className="px-4 py-1.5 bg-saffron-500 hover:bg-saffron-600 text-white rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              >
+                Close Profile
               </button>
             </div>
           </div>

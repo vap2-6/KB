@@ -27,3 +27,18 @@ export interface TerminalSession {
 }
 
 export type ScanMode = "issue" | "verify";
+
+export interface VolunteerToken {
+  id?: number;
+  token_id: string;
+  student_id: string;
+  volunteer_name: string;
+  volunteer_role: string;
+  email?: string;
+  phone_no?: string;
+  meal_type: string;
+  status: "active" | "approved" | "rejected" | "expired";
+  created_at: string;
+  scanned_by?: string;
+}
+

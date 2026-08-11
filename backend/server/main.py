@@ -134,9 +134,13 @@ def configure_frontend_route(prefix, relative_dist_path):
         if path and os.path.exists(file_path) and os.path.isfile(file_path):
             resp = send_from_directory(abs_dist_path, path)
             resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
             return resp
         resp = send_from_directory(abs_dist_path, 'index.html')
         resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
         return resp
 
 # Setup routes for all frontends
