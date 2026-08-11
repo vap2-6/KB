@@ -1,0 +1,72 @@
+services:
+  # 1. MySQL Database Container
+  db:
+    image: mysql:8.0
+    container_name: meal_tokens_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password_secure}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rkmvc_mealflow_db}
+      MYSQL_USER: ${MYSQL_USER:-meal_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-Admin@RKMVC2}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - nms-app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Unified Master Backend Container (Runs Admin, Staff, & Registration Portals)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ./server/Dockerfile
+    container_name: meal_tokens_backend
+    restart: unless-stopped
+    ports:
+      - "5050:5000"
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Kolkata
+      - JWT_SECRET=${JWT_SECRET:-change-this-to-a-random-64-char-string}
+      - QR_HMAC_SECRET=${QR_HMAC_SECRET:-change-this-to-another-random-64-char-string}
+      - TOKEN_EXPIRY_DEFAULT=${TOKEN_EXPIRY_DEFAULT:-60}
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-rkmvc_mealflow_db}
+      - MYSQL_USER=${MYSQL_USER:-meal_app}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-Admin@RKMVC2}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root_password_secure}
+      - DB_HOST=db
+      - DB_USER=${MYSQL_USER:-meal_app}
+      - DB_PASSWORD=${MYSQL_PASSWORD:-Admin@RKMVC2}
+      - DB_DATABASE=${MYSQL_DATABASE:-rkmvc_mealflow_db}
+    volumes:
+      - ./backend/registration_backend/uploads:/app/server/uploads
+      - ./backend/registration_backend/generated_pdfs:/app/server/generated_pdfs
+      - ./frontend-admin/dist:/app/frontend-admin/dist
+      - ./frontend-staff/dist:/app/frontend-staff/dist
+      - ./frontend-canteen/dist:/app/frontend-canteen/dist
+      - ./frontend-stud/dist:/app/frontend-stud/dist
+      - ./frontend-reg/dist:/app/frontend-reg/dist
+    networks:
+      - nms-app-network
+    depends_on:
+      db:
+        condition: service_healthy
+
+networks:
+  nms-app-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
