@@ -155,14 +155,12 @@ def map_db_token_to_frontend(db_token):
     
     # Map DB status to Frontend status ('active', 'redeemed', 'expired', 'rejected')
     status_db = str(db_token.get('status') or '').lower()
-    if db_token.get('redeemed_at') and status_db != 'rejected':
-        status_fe = 'redeemed'
+    if status_db in ['rejected']:
+        status_fe = 'rejected'
     elif status_db in ['expired']:
         status_fe = 'expired'
-    elif status_db in ['redeemed', 'claimed', 'used']:
+    elif status_db in ['redeemed', 'claimed', 'used'] or db_token.get('redeemed_at'):
         status_fe = 'redeemed'
-    elif status_db in ['rejected']:
-        status_fe = 'rejected'
     else:
         status_fe = 'active'
         
@@ -174,15 +172,6 @@ def map_db_token_to_frontend(db_token):
         created_at_str = str(created_at_val)
     else:
         created_at_str = datetime.now().isoformat()
-        
-    # Compute generated_at from token_issued_at or created_at
-    gen_at_val = db_token.get('token_issued_at') or db_token.get('created_at')
-    if isinstance(gen_at_val, datetime):
-        generated_at_str = gen_at_val.isoformat()
-    elif gen_at_val:
-        generated_at_str = str(gen_at_val)
-    else:
-        generated_at_str = created_at_str
 
     student_name = (
         db_token.get('student_name') or 
@@ -199,6 +188,9 @@ def map_db_token_to_frontend(db_token):
     else:
         expires_at_str = ''
 
+    red_val = db_token.get('redeemed_at')
+    redeemed_at_str = red_val.isoformat() if isinstance(red_val, datetime) else (str(red_val) if red_val else None)
+
     return {
         'student_reg': db_token.get('student_id'),
         'student_name': student_name,
@@ -207,11 +199,12 @@ def map_db_token_to_frontend(db_token):
         'meal_type': meal_fe,
         'status': status_fe,
         'created_at': created_at_str,
-        'generated_at': generated_at_str,
+        'generated_at': created_at_str,
+        'redeemed_at': redeemed_at_str,
         'expires_at': expires_at_str,
         'expiry_time': expires_at_str,
         'issued_by': db_token.get('scanned_by'),
-        'processed_by': db_token.get('approved_by') or db_token.get('redeemed_by')
+        'redeemed_by': db_token.get('redeemed_by') or db_token.get('approved_by')
     }
 
 @staff_bp.route('/students', methods=['GET'])
@@ -220,7 +213,7 @@ def get_students():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM student_meals")
+        cursor.execute("SELECT * FROM student_meals ORDER BY student_id ASC")
         db_students = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -279,41 +272,39 @@ def get_tokens():
 def _find_token_and_student(cursor, search_ids, decoded_token_uid=None, decoded_student_id=None):
     db_token = None
     db_student = None
+    existing_token = None
 
-    # Priority 1: Match by token_uid explicitly
-    token_uids_to_try = list(dict.fromkeys(filter(None, [decoded_token_uid] + search_ids)))
-    for tu in token_uids_to_try:
-        cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
-        db_token = cursor.fetchone()
-        if db_token:
-            break
+    is_explicit_token_qr = bool(decoded_token_uid) or any(str(x).upper().startswith('TOK-') for x in search_ids)
 
-    # Priority 2: Match student's active/valid token issued TODAY
-    if not db_token:
-        student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))
-        for sid in student_ids_to_try:
-            cursor.execute("""
-                SELECT * FROM meal_tokens
-                WHERE student_id = %s AND DATE(created_at) = CURDATE()
-                  AND status NOT IN ('expired', 'rejected')
-                ORDER BY created_at DESC LIMIT 1
-            """, (sid,))
+    if is_explicit_token_qr:
+        scanned_type = 'token_qr'
+        token_uids_to_try = list(dict.fromkeys(filter(None, [decoded_token_uid] + search_ids)))
+        for tu in token_uids_to_try:
+            cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
             db_token = cursor.fetchone()
             if db_token:
                 break
-
-    # Fetch student meal profile
-    if db_token:
-        cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (db_token['student_id'],))
-        db_student = cursor.fetchone()
+        if db_token:
+            cursor.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s))", (db_token['student_id'],))
+            db_student = cursor.fetchone()
     else:
-        for sid in search_ids:
-            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
+        scanned_type = 'student_qr'
+        student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))
+        for sid in student_ids_to_try:
+            cursor.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) OR LOWER(TRIM(username)) = LOWER(TRIM(%s))", (sid, sid))
             db_student = cursor.fetchone()
             if db_student:
                 break
 
-    return db_token, db_student
+        if db_student:
+            cursor.execute("""
+                SELECT * FROM meal_tokens
+                WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) AND DATE(created_at) = CURDATE()
+                ORDER BY created_at DESC LIMIT 1
+            """, (db_student['student_id'],))
+            existing_token = cursor.fetchone()
+
+    return db_token, db_student, existing_token, scanned_type
 
 @staff_bp.route('/tokens/<token_id>', methods=['GET'])
 @staff_bp.route('/api/tokens/<token_id>', methods=['GET'])
@@ -329,7 +320,7 @@ def verify_token(token_id):
             decoded_student_id = qr_data.get('_raw')
 
         search_ids = list(dict.fromkeys(filter(None, [decoded_token_uid, decoded_student_id, token_id])))
-        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        db_token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
@@ -497,10 +488,16 @@ def update_token(token_id):
         return jsonify({'error': 'Missing status field'}), 400
 
     status_fe_lower = str(status_fe).lower().strip()
-    if status_fe_lower in ['approved', 'redeemed', 'claimed', 'used', 'success', 'staff_verified']:
+    if status_fe_lower in ['rejected', 'declined', 'denied']:
+        status_db = 'rejected'
+    elif status_fe_lower in ['expired']:
+        status_db = 'expired'
+    elif status_fe_lower in ['approved', 'staff_verified']:
+        status_db = 'approved'
+    elif status_fe_lower in ['redeemed', 'claimed', 'used', 'success']:
         status_db = 'redeemed'
     else:
-        status_db = 'redeemed'
+        status_db = status_fe_lower
 
     # Decode QR payload if needed
     qr_data, _ = _decode_qr_payload(token_id)
@@ -512,7 +509,7 @@ def update_token(token_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        token, _ = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         if not token:
             cursor.close()
@@ -524,11 +521,30 @@ def update_token(token_id):
             conn.close()
             return jsonify({'error': f"Token has already been {token.get('status')}"}), 409
 
-        cursor.execute("""
-            UPDATE meal_tokens
-            SET status = %s, approved_by = %s, redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = CURRENT_TIMESTAMP
-            WHERE token_uid = %s
-        """, (status_db, staff_id, staff_id, token['token_uid']))
+        if status_db == 'rejected':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'rejected', approved_by = %s, approved_at = CURRENT_TIMESTAMP
+                WHERE token_uid = %s
+            """, (staff_id, token['token_uid']))
+        elif status_db == 'expired':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'expired'
+                WHERE token_uid = %s
+            """, (token['token_uid'],))
+        elif status_db == 'approved':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'approved', approved_by = %s, approved_at = CURRENT_TIMESTAMP
+                WHERE token_uid = %s
+            """, (staff_id, token['token_uid']))
+        else:
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = %s, approved_by = COALESCE(approved_by, %s), redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP)
+                WHERE token_uid = %s
+            """, (status_db, staff_id, staff_id, token['token_uid']))
 
         # Add to scan audit log
         result_audit = 'success' if status_db == 'redeemed' else 'invalid_token'
@@ -578,17 +594,18 @@ def scan_qr():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        db_token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
 
-
         if not db_token and not db_student:
-            return jsonify({'error': f'No student or token found for scanned code'}), 404
+            return jsonify({'error': 'No student or token found for scanned code'}), 404
 
         return jsonify({
+            'scanned_type': scanned_type,
             'token': map_db_token_to_frontend(db_token) if db_token else None,
+            'existing_token': map_db_token_to_frontend(existing_token) if existing_token else None,
             'student': map_db_student_to_frontend(db_student) if db_student else None
         })
     except Exception as e:

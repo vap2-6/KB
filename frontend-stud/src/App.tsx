@@ -158,8 +158,7 @@ export default function App() {
     const hDisplay = h < 10 ? `0${h}` : `${h}`;
     return `${hDisplay}:${m} ${ampm}`;
   };
-
-  const isTimeInWindow = (start24?: string, end24?: string, expiryMins: number = 15) => {
+  const isTimeInWindow = (start24?: string, end24?: string) => {
     if (!start24 || !end24) return false;
     const now = new Date();
     const [sH, sM] = start24.split(':').map(Number);
@@ -169,7 +168,7 @@ export default function App() {
     startTime.setHours(sH, sM, 0, 0);
     
     const endTime = new Date(now);
-    endTime.setHours(eH, eM + expiryMins, 0, 0);
+    endTime.setHours(eH, eM, 0, 0);
     
     return now >= startTime && now <= endTime;
   };
@@ -217,7 +216,7 @@ export default function App() {
           const bfStart = fn.start || '07:30';
           const bfEnd = fn.end || '10:00';
           const lunchStart = an.start || '12:00';
-          const lunchEnd = an.end || '14:30';
+          const lunchEnd = an.end || '19:30';
           setMealWindowConfig({
             bfStart: format12Hour(bfStart),
             bfEnd: format12Hour(bfEnd),
@@ -225,10 +224,10 @@ export default function App() {
             lunchEnd: format12Hour(lunchEnd),
             bfRawStart: bfStart,
             bfRawEnd: bfEnd,
-            bfExpiry: fn.expiry ?? 15,
+            bfExpiry: fn.expiry ?? 30,
             lunchRawStart: lunchStart,
             lunchRawEnd: lunchEnd,
-            lunchExpiry: an.expiry ?? 15,
+            lunchExpiry: an.expiry ?? 30,
           });
         }
       } catch (e) { }
@@ -245,10 +244,10 @@ export default function App() {
         // Fetch Admin Configured Meal Window Timings & Expiry
         let activeBfStart = '07:30';
         let activeBfEnd = '10:00';
-        let activeBfExpiry = 15;
+        let activeBfExpiry = 30;
         let activeLunchStart = '12:00';
-        let activeLunchEnd = '14:30';
-        let activeLunchExpiry = 15;
+        let activeLunchEnd = '19:30';
+        let activeLunchExpiry = 30;5;
 
         try {
           const cfgRes = await fetch('/api/public/meal-config');
@@ -417,6 +416,9 @@ export default function App() {
 
           if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
             if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
+              if (!isWindowActive) {
+                return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+              }
               return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
             }
             let qrUrl: string | null = null;
@@ -429,8 +431,14 @@ export default function App() {
           } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
             return { status: 'claimed', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           } else if (st === 'expired') {
+            if (!isWindowActive) {
+              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+            }
             return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           } else if (st === 'rejected') {
+            if (!isWindowActive) {
+              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+            }
             return { status: 'rejected', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           }
 
@@ -659,11 +667,23 @@ export default function App() {
       console.warn("Backend auth login fallback:", err);
     }
 
+    const foundByRegNo = studentsList.find(
+      s => (s.id.toUpperCase() === trimmedId.toUpperCase() || s.roll.toUpperCase() === trimmedId.toUpperCase())
+    );
+    if (foundByRegNo && foundByRegNo.year && foundByRegNo.year.toLowerCase().includes('graduat')) {
+      setError('The student is not studing this year.');
+      return;
+    }
+
     const found = studentsList.find(
       s => (s.id.toUpperCase() === trimmedId.toUpperCase() || s.roll.toUpperCase() === trimmedId.toUpperCase()) && s.password === trimmedPw
     );
 
     if (found) {
+      if (found.year && found.year.toLowerCase().includes('graduat')) {
+        setError('The student is not studing this year.');
+        return;
+      }
       setLoggedInStudent(found);
       localStorage.setItem('canteen_student_session', JSON.stringify(found));
       setActiveTab('canteen');

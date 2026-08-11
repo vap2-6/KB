@@ -5,6 +5,7 @@
 - **Data Integrity Rule**: No `LONGTEXT` JSON state blobs for runtime logs. All scans must execute via relational transactional writes.
 - **Security Rule**: Plaintext credentials files (`student_credentials.csv`) are strictly prohibited on disk. Passwords must be hashed using a secure algorithm (e.g., bcrypt) inside the database. Real credentials are delivered exclusively via transaction-based SMTP execution loops.
 - **Context Isolation**: State mutations utilizing `request.user` are forbidden. Thread isolation must utilize Flask's native global application container (`flask.g.user`).
+- **Unified Server Routing**: Single Flask backend process running on port 5050 serving all Blueprints (`/api/admin`, `/api/staff`, `/api/canteen`, `/api/student`) and static SPA bundles (`/staff`, `/canteen`, `/student`, `/admin`, `/register`).
 
 ---
 
@@ -63,54 +64,84 @@ When an Admin triggers a choice toggle, the backend processes an atomic lifecycl
 - Plaintext credentials must never touch a text file or backup log asset on disk.
 - Admins possess locked permissions: They **cannot** manually forge, alter, or inject structural tokens directly into the engine. They can exclusively review system-wide logs within the **Token & Distribution** analytics board.
 
+### Automated & Manual Academic Year Migration Engine
+1. **Meal Windows Configuration Integration**:
+   - The Meal Windows section in the Admin Portal contains an **"Automated Student Year Migration"** card with dedicated date (`Year Migration Date`) and time (`Year Migration Time`) input fields.
+   - The manual **"Promote Academic Year"** trigger button on the Student Roster page remains fully functional for manual testing and instant triggers.
+2. **Automated Progression Logic & Loophole Mitigations**:
+   - **Batch Migration Sequence**: Promotes student academic years atomically (`3rd Year` &rarr; `Graduated`, `2nd Year` &rarr; `3rd Year`, `1st Year` &rarr; `2nd Year`), setting meal eligibility for graduated students (`forenoon_meal = 0`, `afternoon_meal = 0`).
+   - **Automatic Annual Roll-Forward**: When migration occurs, the configured date automatically advances to the exact same day and time in the next year (`+1 Year`).
+   - **Immediate Execution for Past Input**: If the set date and time are in the past (or present), migration executes **immediately** upon saving (`PUT /api/meal-config`), and the displayed schedule rolls forward to the upcoming year.
+   - **Catch-Up Infinite Loop Prevention**: When advancing past dates, the backend advances by +1 year iteratively until `next_date > NOW()`, guaranteeing exactly one execution without cascading multiple past-year migrations.
+   - **Leap Year (Feb 29) Exception Handling**: Scheduling on Feb 29 in a leap year falls back gracefully to Feb 28 in non-leap years.
+   - **Thread Safety & Background Monitoring**: Managed with database row locks (`SELECT FOR UPDATE`) and monitored by a background daemon worker thread (`YearMigrationSchedulerThread`) polling every 30 seconds.
+
 ---
 
-## 3. Staff Operation Portals
+## 3. Staff & Canteen Operation Portals
 
-### Module A: Approval Staff Workflow(STAFF101)
+### Complete Token State Lifecycle Matrix
+| Database `status` | `approved_at` | `redeemed_at` | Description / UI Mapping |
+| :--- | :--- | :--- | :--- |
+| `'active'` / `'token_issued'` | `NULL` | `NULL` | Fresh token generated for today. Scannable by canteen/staff. |
+| `'approved'` / `'staff_verified'` | `TIMESTAMP` | `NULL` | Staff approved/verified token. Valid for canteen redemption. |
+| `'redeemed'` / `'claimed'` | `TIMESTAMP` | `TIMESTAMP` | Canteen staff distributed meal. Cannot be used again today. |
+| `'rejected'` | `TIMESTAMP` | `NULL` | Token rejected by staff/canteen. Can generate fresh token. |
+| `'expired'` | `NULL`/`TIMESTAMP` | `NULL` | Token 30-min lifetime passed or date < CURDATE. Can generate fresh token. |
+
+---
+
+### Module A: Approval Staff Workflow (STAFF101)
 The Approval Staff interface manages manual identity checking and token provisioning.
 
-1. **Dual Ingest Pipeline (QR Scanner & Manual Entry Entrypoint)**:
-   - **QR Mode**: Scanning the student’s persistent identity QR code from their portal pulls their academic `register_number`.
-   - **Manual Mode**: If the student lacks a device or the code is unreadable, typing the `register_number` into the input bar and pressing enter **must execute the identical interface flow**. Both actions must launch the **Unified Verification View Mapping modal**.
-2. **Unified Verification View Mapping Modal**: 
+1. **Dual Ingest Pipeline & QR Code Type Differentiation**:
+   - **Student Identity QR Scan (Student ID / `sid`)**: Returns student profile details ONLY. Automatically opens `IssueTokenModal`.
+   - **Token QR Scan (`TOK-...` / `tu`)**: Returns token details. Automatically opens `VerifyTokenModal`.
+   - **Manual Mode**: Typing `register_number` into input bar executes the identical Student ID flow.
+2. **Unified Verification View Mapping Modal (`IssueTokenModal`)**: 
    When a student profile is requested, the modal displays:
    - Full Academic Name, Profile Photograph, and Registration Number.
-   - **Live Session Eligibility Crosscheck**: The system checks the current server time session against the student's profile flags inside the database (`student_meals.forenoon_meal` and `student_meals.afternoon_meal`).
-3. **Session Eligibility Enforcement & Control Locks**:
-   - **Forenoon Session (07:00 AM - 10:00 AM)**: If a student presents their code but their record shows `forenoon_meal = 0`, the modal must print a highly visible warning: **"NOT ELIGIBLE FOR FORENOON MEAL"**. The **"Issue"** button must remain visible but switch to a completely disabled, un-clickable state.
-   - **Afternoon Session (12:00 PM - 07:00 PM)**: If a student presents their code but their record shows `afternoon_meal = 0`, the modal must print a highly visible warning: **"NOT ELIGIBLE FOR AFTERNOON MEAL"**. The **"Issue"** button must remain visible but switch to a completely disabled, un-clickable state.
-4. **Token Generation Lifecycle Engine**: 
-   - If the student is confirmed eligible and the staff clicks the enabled **"Issue"** button, the backend creates a fresh entry inside the physical `meal_tokens` table with `status = 'Active'` and records a server-verified `generated_at` timestamp.
-   - If the staff flags data tampering or bad behavior, they click **"Reject"** to log an audit cancellation.
+   - **Live Session Eligibility Crosscheck**: Checks current server time session against `student_meals.forenoon_meal` and `student_meals.afternoon_meal`.
+   - **In-Modal Status Alerts (at Bottom of Unified Window)**:
+     - **Active Token Banner**: Displays **"Token is active"** (amber banner) if student has an active/approved token for today.
+     - **Claimed Token Banner**: Displays **"Token is claimed"** (blue banner) if student has a claimed/redeemed token for today.
+     - **Ineligibility Banner**: Displays **"NOT ELIGIBLE FOR FORENOON MEAL"** or **"NOT ELIGIBLE FOR AFTERNOON MEAL"**.
+3. **Session & Token Action Enforcement**:
+   - If **Token is Active** or **Claimed**: Generate button is **disabled** (`cursor-not-allowed`) displaying `"TOKEN IS ACTIVE"` or `"TOKEN IS CLAIMED"`.
+   - If **Token is Expired**, **Rejected**, or **None exists**: Generate button is **enabled** (`"GENERATE TOKEN"`), creating a fresh `status = 'active'` token upon click.
+   - If Staff clicks **"Reject"**: Calls token status update `status = 'rejected'`, leaving `redeemed_at = NULL` and logging audit denial.
+
+---
 
 ### Module B: Canteen Staff Verification Workflow (CANTEEN01)
 The Canteen Staff handles real-time gate validation during dining distributions.
 
-1. **Scan Ingest Matrix**: The operator uses a barcode hardware peripheral or webcam reader tool to ingest the student's token QR code hash payload.
-2. **Unified Verification View Mapping Modal**: 
-   When a student profile is requested, the modal displays:
-   - Full Academic Name, Profile Photograph, and Registration Number.
-3. **Physical Verification Lock**: The Canteen Staff must inspect the screen profile photo and visually check the student standing in line.
-4. **State Commit Handlers**: The staff clicks one of two explicit interaction buttons:
-   - **Claim Button**: Sets the database token status to `'Claimed'`, logs the timestamp, and creates a relational transaction row inside the `meal_distribution_log` table tracking the operating staff user account.
-   - **Reject Button**: Sets the database token status to `'Rejected'`, tracking a denial execution string.
-5. **Dashboard Metrics & Verification Badges**:
-   - **Stat Card 4 Metric Aggregation**: Must strictly be named **`REJECTED / EXPIRED`** and aggregate both `'rejected'` and `'expired'` tokens in state calculations (`rejectedTokens = tokens.filter(t => t.status === 'rejected' || t.status === 'expired').length`).
-   - **Token API & Verification Status Mapping**: The backend mapping (`map_db_token_to_frontend`) preserves `'expired'` tokens as `"status": "expired"`, allowing the UI to display explicit **`EXPIRED`** rose status badges (distinct from `'rejected'`).
+1. **Scan Ingest Matrix & Origin Resolution**:
+   - Webcam and hardware scanners send payload to `/api/scan`.
+   - Network fetches dynamically resolve `window.location.origin` (supporting localhost, local Wi-Fi, and LAN IP addresses without host resolution errors).
+2. **Token Verification Modal (`VerifyTokenModal`)**:
+   - Displayed when a **Token QR** is scanned. Shows student name, reg number, photo, meal type, and token status.
+3. **State Commit Handlers**:
+   - **Approve Button**: Sets token `status = 'approved'`, `approved_by = staff_id`, `approved_at = CURRENT_TIMESTAMP`, leaving `redeemed_at = NULL`.
+   - **Redeem / Claim Button**: Sets token `status = 'redeemed'`, `redeemed_by = canteen_id`, `redeemed_at = CURRENT_TIMESTAMP`.
+   - **Reject Button**: Sets token `status = 'rejected'`, `approved_by = canteen_id`, `approved_at = CURRENT_TIMESTAMP`, leaving `redeemed_at = NULL`.
+4. **Dashboard Metrics & Verification Badges**:
+   - **Stat Card 4 Metric Aggregation**: Named **`REJECTED / EXPIRED`**, aggregating both `'rejected'` and `'expired'` tokens.
+   - **Status Badges**: `Active` (Emerald), `Approved` (Blue), `Redeemed / Claimed` (Indigo), `Expired` (Amber/Rose), `Rejected` (Rose).
 
 ---
 
 ### Automatic Token Expiry Lifecycle & Database State Transitions
-- **Database Auto-Expiration Query**: When token endpoints (`GET /api/staff/tokens`, `GET /api/student/active-token`) or Admin Portal physical table syncs (`_get_physical_mysql_tables`, `_lazy_expire_tokens`) execute, the backend automatically runs an atomic MySQL update query:
+- **Database Auto-Expiration Query**: Executed atomically on token endpoints:
   ```sql
   UPDATE meal_tokens 
   SET status = 'expired' 
   WHERE status IN ('active', 'awaiting_scan', 'approved', 'token_issued', 'staff_verified')
     AND ((expiry_time IS NOT NULL AND expiry_time < NOW()) 
-      OR (expiry_time IS NULL AND TIMESTAMPDIFF(SECOND, created_at, NOW()) > 1800))
+      OR (expiry_time IS NULL AND TIMESTAMPDIFF(SECOND, created_at, NOW()) > 1800)
+      OR DATE(created_at) < CURDATE())
   ```
-- **Real-Time UI Expiry Transition**: When a token's 30-minute lifetime expires or countdown timer hits zero (`timeLeftSeconds <= 0`), the token's status dynamically transitions from `'active'` to `'expired'` in both MySQL database tables and frontend states. The popup modal and token cards automatically update from **"Active"** / **"OPEN QR CODE"** to **"Token Expired"** with all QR code displays safely unmounted.
+- **Real-Time UI Expiry Transition**: When countdown timer hits zero, token dynamically transitions to `'expired'`, unmounting QR code displays and showing **"Token Expired"**.
 
 ---
 
@@ -121,43 +152,111 @@ The Canteen Staff handles real-time gate validation during dining distributions.
 - **Mandatory Password Reset Lock**: If the authenticated password matches the default setup phrase (`pass123`), the API response explicitly includes `{"require_password_reset": true}`. Upon receiving this flag, the Student Portal locks navigation, disables backdrop click dismissals, unrenders close `X` buttons, and enforces password change completion before granting access.
 
 ### Non-Expanding Token Cards & Modal QR Presentation
-- **Fixed-Height Meal Token Cards**: Meal Token cards (`Breakfast Token` & `Lunch Token`) remain uniform and fixed-size without expanding downward to embed QR codes directly inside the card body.
-- **Interactive Popup Modal Trigger**: Active tokens render an interactive **"OPEN QR CODE"** button. Clicking this button opens a dedicated popup modal overlay that displays the scannable QR Code image, live expiration countdown timer, and scannable status.
-- **Automatic Expiration Handling**: If the countdown timer expires while viewing the modal, the popup modal dynamically switches its view from the active QR code to a clean **"Token Expired"** indicator card.
+- **Fixed-Height Meal Token Cards**: Cards (`Breakfast Token` & `Lunch Token`) remain uniform and fixed-size.
+- **Interactive Popup Modal Trigger**: Active tokens render **"OPEN QR CODE"** button. Clicking opens modal overlay displaying scannable QR Code image and live countdown timer.
+- **Automatic Expiration Handling**: If timer expires during view, modal dynamically switches to **"Token Expired"**.
 
 ### Real-Time Canteen Token History View
-- **Server-Driven Token Log**: The Student Portal **History** tab (`activeTab === 'history'`) polls real-time database entries from `meal_tokens` matching the logged-in student's registration ID (`student_reg`).
+- **Server-Driven Token Log**: History tab polls real-time database entries matching student's registration ID (`student_reg`).
 - **Dynamic History Cards**: History entries render:
   - **Meal Indicator**: Breakfast Token (coffee icon) / Lunch Token (utensils icon).
-  - **Token Identifier Badge**: Explicit token tracking code (e.g. `TOK-1784981404`).
-  - **Formatted Timestamp**: Formatted date and time string (e.g. `Jul 25, 2026 at 05:40 PM`).
-  - **Status Badges**: Distinct color-coded status badges — `Active / Issued` (Emerald), `Staff Verified & Redeemed` (Blue), `Expired` (Rose), or `Rejected` (Rose).
+  - **Token Identifier Badge**: Explicit token tracking code (e.g., `TOK-1784981404`).
+  - **Formatted Timestamp**: Formatted date and time string (e.g., `Jul 25, 2026 at 05:40 PM`).
+  - **Status Badges**: Distinct color-coded status badges — `Active` (Emerald), `Approved` (Blue), `Redeemed / Claimed` (Indigo), `Expired` (Rose), `Rejected` (Rose).
 
 ---
 
 ## 5. Global Audit & Ledger Synchronization Requirement
-Every transaction state change, application review step, token generation execution, or scanning claim trigger must write atomic transitional entries into their respective relational tracking tables (`meal_distribution_log`, `scan_audit_log`, `meal_tokens`).
-Everyday token generation report should be generated as pdf file and stored in a folder regularly.
+Every transaction state change, application review step, token generation execution, or scanning claim trigger must write atomic transitional entries into relational tracking tables (`meal_distribution_log`, `scan_audit_log`, `meal_tokens`).
+Everyday token generation report should be generated as PDF file and stored in a persistent directory regularly.
 
 ---
 
 ## 6. Student Registration Form Specifications
 
-
 ### Department Number Validation Constraint
-- **Exact 13-Digit Requirement**: The Department Number field strictly enforces an exact 13-digit numeric requirement (`/^\d{13}$/`).
-- **Auto fetching using Department Number** : When the applicant enters the 13 digit department number, the form automatically fetches the student details from the database and fills the form. **If the student is already registered, the form should display a message "Already registered with this Department Number" and disable the form.**  
-- **Input Guarding & Form Validation**: Non-numeric characters are automatically stripped on input, and form submission validation prevents progress unless the Department Number contains exactly 13 digits.
+- **Exact 13-Digit Requirement**: Strictly enforces an exact 13-digit numeric requirement (`/^\d{13}$/`).
+- **Auto-fetching using Department Number**: Applicant entering 13-digit department number automatically triggers database lookup. **If student is already registered, form displays message "Already registered with this Department Number" and disables form.**  
+- **Input Guarding & Form Validation**: Non-numeric characters stripped on input; submission blocked unless Department Number contains exactly 13 digits.
 
 ### Date of Birth (DOB) & Automatic Age Engine
-- **Dynamic Age Calculation**: The form automatically computes the applicant's exact age in years from their entered Date of Birth, displaying a real-time Age badge (`Age: 20 Yrs`).
-- **MySQL Table Column Mapping (`meal_registrations`)**: The `meal_registrations` table schema explicitly maintains an `age INT` column placed next to `date_of_birth VARCHAR(50)`, populated automatically on form submission.
+- **Dynamic Age Calculation**: Computes applicant's exact age in years from DOB, displaying real-time Age badge (`Age: 20 Yrs`).
+- **MySQL Table Column Mapping (`meal_registrations`)**: Schema maintains `age INT` column next to `date_of_birth VARCHAR(50)`, populated automatically on submission.
 
-### Forget Password - All login pages
-- Forget Password button in the login page should redirect to the Forget Password page.
-- On click of  Forget Password button, should check the database for the user (for both  student and staff login pages).
-- The Forget Password page should have a form to enter the registration number and email address.
-- When the submit button in the Forget Password page is clicked, the form should check if the registration number and email address are correct and if true send a email to the particular email address with a randomly generated password.
-- And the randomly generated password should be updated in the database for the particular user. So when the user logs in with the randomly generated password, he should be able to login successfully.
+### Forgot Password - All Login Pages
+- Forgot Password button on login page redirects to Forgot Password page.
+- Checks database for user (student and staff login pages).
+- Form asks for registration number and email address.
+- Validates registration number and email match; if valid, sends email with randomly generated password.
+- Updates database password hash with new randomly generated password for that user.
+- Separate login pages and forgot password pages for students and staff.
 
-- Separate login page for students and staff, and also separate pages for their forget password page.
+---
+
+## 7. System API Endpoint Contracts & Database Operations
+
+### API 1: Token QR Scan Ingestion (`POST /api/scan`)
+- **Endpoint**: `POST /api/scan`
+- **Payload**: `{"payload": "<TOK-ID or Student ID>"}`
+- **Response**:
+  ```json
+  {
+    "scanned_type": "token_qr",
+    "token": {
+      "token_id": "TOK-1786371491",
+      "student_reg": "2433010340220",
+      "meal_type": "Lunch",
+      "status": "approved",
+      "created_at": "2026-11-08T01:18:11",
+      "generated_at": "2026-11-08T01:18:11"
+    },
+    "student": {
+      "reg_no": "2433010340220",
+      "name": "Kishore",
+      "department": "CSE",
+      "year": "3rd Year"
+    }
+  }
+  ```
+
+### API 2: Token Generation / Issuance (`POST /api/tokens`)
+- **Endpoint**: `POST /api/tokens`
+- **Payload**: `{"student_reg": "2433010340220", "meal_type": "Lunch", "staff_id": "STAFF101"}`
+- **Executed MySQL Query**:
+  ```sql
+  INSERT INTO meal_tokens (token_uid, student_id, cached_student_name, meal_type, status, scanned_by, created_at, expiry_time)
+  VALUES ('TOK-1786371491', '2433010340220', 'Kishore', 'afternoon', 'active', 'STAFF101', NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE));
+  ```
+- **Response**: `HTTP 201 Created: {"message": "Token issued successfully", "token_id": "TOK-1786371491"}`
+
+### API 3: Staff Token Approval (`PATCH /api/tokens/<token_id>`)
+- **Endpoint**: `PATCH /api/tokens/<token_id>`
+- **Payload**: `{"status": "approved", "staff_id": "STAFF101"}`
+- **Executed MySQL Query**:
+  ```sql
+  UPDATE meal_tokens
+  SET status = 'approved', approved_by = 'STAFF101', approved_at = CURRENT_TIMESTAMP
+  WHERE token_uid = 'TOK-1786371491';
+  ```
+- **Response**: `HTTP 200 OK: {"message": "Token updated successfully"}`
+
+### API 4: Canteen Meal Redemption (`PATCH /api/tokens/<token_id>`)
+- **Endpoint**: `PATCH /api/tokens/<token_id>` (or `POST /api/redeem`)
+- **Payload**: `{"status": "redeemed", "staff_id": "CANTEEN01"}`
+- **Executed MySQL Query**:
+  ```sql
+  UPDATE meal_tokens
+  SET status = 'redeemed', redeemed_by = 'CANTEEN01', redeemed_at = CURRENT_TIMESTAMP, approved_by = COALESCE(approved_by, 'CANTEEN01'), approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP)
+  WHERE token_uid = 'TOK-1786371491';
+  ```
+- **Response**: `HTTP 200 OK: {"message": "Meal redeemed successfully"}`
+
+### API 5: Student Active Token Polling (`GET /api/student/active-token`)
+- **Endpoint**: `GET /api/student/active-token?student_id=<REG_NO>`
+- **Executed MySQL Query**:
+  ```sql
+  SELECT * FROM meal_tokens
+  WHERE student_id = '2433010340220' AND created_at >= CURDATE() AND status IN ('active', 'approved', 'expired', 'redeemed', 'rejected')
+  ORDER BY created_at DESC;
+  ```
+- **Response**: Returns token objects with `token_uid`, `meal_type`, `status`, `expires_at`, and `server_current_time`.

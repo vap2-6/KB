@@ -136,6 +136,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
           mobile_no: s.mobile_no || "",
           email: s.email || ""
         }));
+        mapped.sort((a, b) => a.reg_no.localeCompare(b.reg_no, undefined, { numeric: true }));
         setStudents(mapped);
       } else {
         // Fallback to /tables/student_meals
@@ -152,6 +153,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
           mobile_no: s.mobile_no || "",
           email: s.email || ""
         }));
+        mapped.sort((a, b) => a.reg_no.localeCompare(b.reg_no, undefined, { numeric: true }));
         setStudents(mapped);
       }
     } catch (err: any) {

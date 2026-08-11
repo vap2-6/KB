@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, Save, Sun, Moon } from 'lucide-react';
+import { Calendar, Save, Sun, Moon, GraduationCap } from 'lucide-react';
 import api from '../lib/api';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -8,12 +8,14 @@ interface MealConfig {
   days: number[];
   forenoon: { start: string; end: string; expiry: number };
   afternoon: { start: string; end: string; expiry: number };
+  year_migration_date?: string;
 }
 
 const DEFAULT_MEAL_CONFIG: MealConfig = {
   days: [0, 1, 2, 3, 4, 5, 6],
-  forenoon: { start: '07:30', end: '10:00', expiry: 15 },
-  afternoon: { start: '12:00', end: '14:30', expiry: 15 }
+  forenoon: { start: '07:30', end: '10:00', expiry: 30 },
+  afternoon: { start: '12:00', end: '14:30', expiry: 30 },
+  year_migration_date: ''
 };
 
 interface MealWindowsProps {
@@ -24,6 +26,8 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
   const [config, setConfig] = useState<MealConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [migDate, setMigDate] = useState('');
+  const [migTime, setMigTime] = useState('');
 
   const formatHHMM = (val?: string, fallback: string = '07:30') => {
     if (!val) return fallback;
@@ -36,6 +40,34 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
     return fallback;
   };
 
+  const parseYearMigrationStr = (rawStr?: string) => {
+    if (!rawStr) return { date: '', time: '' };
+    const cleanStr = rawStr.trim();
+    if (!cleanStr) return { date: '', time: '' };
+    const parts = cleanStr.includes('T') ? cleanStr.split('T') : cleanStr.split(' ');
+    let rawDate = parts[0] || '';
+    const t = parts[1] ? parts[1].substring(0, 5) : '00:00';
+
+    let normalizedDate = rawDate;
+    if (rawDate.includes('-')) {
+      const dp = rawDate.split('-');
+      if (dp.length === 3 && dp[0].length === 2 && dp[2].length === 4) {
+        normalizedDate = `${dp[2]}-${dp[1].padStart(2, '0')}-${dp[0].padStart(2, '0')}`;
+      }
+    } else if (rawDate.includes('/')) {
+      const dp = rawDate.split('/');
+      if (dp.length === 3) {
+        if (dp[2].length === 4) {
+          normalizedDate = `${dp[2]}-${dp[1].padStart(2, '0')}-${dp[0].padStart(2, '0')}`;
+        } else if (dp[0].length === 4) {
+          normalizedDate = `${dp[0]}-${dp[1].padStart(2, '0')}-${dp[2].padStart(2, '0')}`;
+        }
+      }
+    }
+
+    return { date: normalizedDate, time: t };
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -44,28 +76,54 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
         const data = res.data || {};
         const fn = data.forenoon || {};
         const an = data.afternoon || {};
+        const yearMigStr = data.year_migration_date || '';
 
         setConfig({
           days: data.days ?? DEFAULT_MEAL_CONFIG.days,
           forenoon: {
             start: formatHHMM(fn.start, '07:30'),
             end: formatHHMM(fn.end, '10:00'),
-            expiry: fn.expiry ?? 15
+            expiry: fn.expiry ?? 30
           },
           afternoon: {
             start: formatHHMM(an.start, '11:30'),
             end: formatHHMM(an.end, '19:30'),
-            expiry: an.expiry ?? 15
-          }
+            expiry: an.expiry ?? 30
+          },
+          year_migration_date: yearMigStr
         });
+
+        const parsed = parseYearMigrationStr(yearMigStr);
+        const draftDate = localStorage.getItem('draft_year_migration_date') || '';
+        const draftTime = localStorage.getItem('draft_year_migration_time') || '';
+
+        const finalDate = parsed.date || draftDate;
+        const finalTime = parsed.time || draftTime;
+
+        setMigDate(finalDate);
+        setMigTime(finalTime);
       } catch {
         // Fallback to default configuration if API request fails
         setConfig(DEFAULT_MEAL_CONFIG);
+        const draftDate = localStorage.getItem('draft_year_migration_date') || '';
+        const draftTime = localStorage.getItem('draft_year_migration_time') || '';
+        setMigDate(draftDate);
+        setMigTime(draftTime);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
+
+  const handleMigDateChange = (val: string) => {
+    setMigDate(val);
+    localStorage.setItem('draft_year_migration_date', val);
+  };
+
+  const handleMigTimeChange = (val: string) => {
+    setMigTime(val);
+    localStorage.setItem('draft_year_migration_time', val);
+  };
 
   const toggleDay = (dow: number) => {
     if (!config) return;
@@ -90,15 +148,43 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
       return;
     }
 
+    let combinedMigrationDate = '';
+    if (migDate) {
+      const timePart = migTime ? migTime : '00:00';
+      combinedMigrationDate = `${migDate}T${timePart}`;
+    }
+
     setSaving(true);
     try {
-      // PUT /meal-config syncs both app_state and the meal_windows table
-      await api.put('/meal-config', {
+      // PUT /meal-config syncs app_state, meal_windows table, and runs/updates year migration schedule
+      const res = await api.put('/meal-config', {
         forenoon: { start: config.forenoon.start, end: config.forenoon.end, expiry: config.forenoon.expiry },
         afternoon: { start: config.afternoon.start, end: config.afternoon.end, expiry: config.afternoon.expiry },
-        days: config.days
+        days: config.days,
+        year_migration_date: combinedMigrationDate
       });
-      showToast('Meal schedule saved successfully', 'success');
+
+      const updated = res.data || {};
+      const updatedYearMigStr = updated.year_migration_date || combinedMigrationDate;
+      
+      setConfig({
+        days: updated.days ?? config.days,
+        forenoon: updated.forenoon || config.forenoon,
+        afternoon: updated.afternoon || config.afternoon,
+        year_migration_date: updatedYearMigStr
+      });
+
+      const parsed = parseYearMigrationStr(updatedYearMigStr);
+      const savedDate = parsed.date || (combinedMigrationDate ? combinedMigrationDate.split('T')[0] : '');
+      const savedTime = parsed.time || (combinedMigrationDate ? (combinedMigrationDate.split('T')[1] || '00:00') : '');
+
+      setMigDate(savedDate);
+      setMigTime(savedTime);
+
+      localStorage.setItem('draft_year_migration_date', savedDate);
+      localStorage.setItem('draft_year_migration_time', savedTime);
+
+      showToast('Meal schedule and Year Migration Date saved successfully', 'success');
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Failed to save schedule', 'error');
     } finally {
@@ -123,7 +209,7 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
               <Calendar className="h-5 w-5 text-saffron-500" />
               Meal Schedule
             </h2>
-            <p className="text-xs text-slate-500 mt-1">Set serving days, time windows, and token expiry time</p>
+            <p className="text-xs text-slate-500 mt-1">Set serving days, time windows, token expiry, and automated year migration date</p>
           </div>
           <button onClick={handleSave} disabled={saving}
             className="bg-saffron-500 hover:bg-saffron-600 disabled:bg-saffron-300 text-white font-semibold text-xs py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-md cursor-pointer">
@@ -179,13 +265,13 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  Token Expiry Time (minutes after end)
+                  Token Expiry Duration (minutes)
                 </label>
-                <input type="number" min="0" max="120" value={config?.forenoon.expiry ?? 15}
+                <input type="number" min="0" max="120" value={config?.forenoon.expiry ?? 30}
                   onChange={e => setConfig(prev => prev ? { ...prev, forenoon: { ...prev.forenoon, expiry: parseInt(e.target.value) || 0 } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Tokens issued during this window expire {config?.forenoon.expiry ?? 15} min after the End Time.
+                  Tokens issued during this window expire {config?.forenoon.expiry ?? 30} min after issuance.
                 </p>
               </div>
             </div>
@@ -210,16 +296,62 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  Token Expiry Time (minutes after end)
+                  Token Expiry Duration (minutes)
                 </label>
-                <input type="number" min="0" max="120" value={config?.afternoon.expiry ?? 15}
+                <input type="number" min="0" max="120" value={config?.afternoon.expiry ?? 30}
                   onChange={e => setConfig(prev => prev ? { ...prev, afternoon: { ...prev.afternoon, expiry: parseInt(e.target.value) || 0 } } : prev)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500" />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Tokens issued during this window expire {config?.afternoon.expiry ?? 15} min after the End Time.
+                  Tokens issued during this window expire {config?.afternoon.expiry ?? 30} min after issuance.
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Automated Year Migration Card */}
+          <div className="border border-saffron-100 rounded-xl p-5 space-y-4 bg-amber-50/20">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 text-saffron-600" />
+                Automated Student Year Migration
+              </h3>
+              <span className="text-[10px] bg-saffron-100 text-saffron-800 px-2 py-0.5 rounded-full font-semibold">
+                Annual Auto-Promote
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Set the date and time for automatic student academic year migration (1st &rarr; 2nd &rarr; 3rd &rarr; Graduated). When migration occurs, the scheduled date automatically advances to the exact same day next year. If the date and time are set in the past, migration happens immediately upon saving.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Year Migration Date
+                </label>
+                <input
+                  type="date"
+                  value={migDate}
+                  onChange={e => handleMigDateChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Year Migration Time
+                </label>
+                <input
+                  type="time"
+                  value={migTime}
+                  onChange={e => handleMigTimeChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500"
+                />
+              </div>
+            </div>
+            {config?.year_migration_date && (
+              <div className="text-[11px] text-slate-600 bg-white border border-saffron-200/60 rounded-lg p-2.5 flex items-center gap-2">
+                <Calendar className="h-3.5 w-3.5 text-saffron-500 flex-shrink-0" />
+                <span>Next scheduled migration: <strong>{new Date(config.year_migration_date).toLocaleString()}</strong></span>
+              </div>
+            )}
           </div>
         </div>
       </div>

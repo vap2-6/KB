@@ -65,7 +65,7 @@ def student_auth_login():
                         cur.execute("""
                             INSERT INTO student_meals (student_id, name, username, grade_section, degree_year, email, mobile_no, password_hash, forenoon_meal, afternoon_meal)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, 'pass123', 1, 1)
-                            ON DUPLICATE KEY UPDATE name=VALUES(name), degree_year=VALUES(degree_year)
+                            ON DUPLICATE KEY UPDATE name=VALUES(name), degree_year=IF(student_meals.degree_year IS NULL OR student_meals.degree_year = '' OR student_meals.degree_year = 'Enrolled', VALUES(degree_year), student_meals.degree_year)
                         """, (s_id, s_name, s_id, s_dept, s_yr, s_email, s_mobile))
                         conn.commit()
                         cur.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) LIMIT 1", (s_id,))
@@ -75,6 +75,11 @@ def student_auth_login():
         
         if not student:
             return jsonify({"error": "Invalid student registration ID or password"}), 401
+            
+        # Check if student account is disabled due to graduation status
+        deg_yr = str(student.get('degree_year') or '').strip().lower()
+        if 'graduat' in deg_yr:
+            return jsonify({"error": "The student is not studing this year."}), 403
             
         # Verify password dynamically against database bcrypt hash
         password_valid = False
@@ -171,7 +176,7 @@ def student_check_user():
             with conn.cursor() as cur:
                 clean_id = str(student_reg_no).strip()
                 cur.execute("""
-                    SELECT student_id, name, username, email FROM student_meals 
+                    SELECT student_id, name, username, email, degree_year FROM student_meals 
                     WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) 
                        OR LOWER(TRIM(username)) = LOWER(TRIM(%s))
                     LIMIT 1
@@ -185,6 +190,13 @@ def student_check_user():
                 "exists": False,
                 "error": "Student with this Registration Number was not found in the database."
             }), 404
+
+        deg_yr = str(student.get('degree_year') or '').strip().lower()
+        if 'graduat' in deg_yr:
+            return jsonify({
+                "exists": False,
+                "error": "The student is not studing this year."
+            }), 403
 
         return jsonify({
             "exists": True,
@@ -227,6 +239,10 @@ def student_forgot_password():
 
                 if not student:
                     return jsonify({"error": "Student with this Registration Number was not found in the database."}), 404
+
+                deg_yr = str(student.get('degree_year') or '').strip().lower()
+                if 'graduat' in deg_yr:
+                    return jsonify({"error": "The student is not studing this year."}), 403
 
                 db_email = (student.get('email') or '').strip()
                 if not db_email or db_email.lower() != provided_email.lower():

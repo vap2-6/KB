@@ -9,15 +9,16 @@ export interface Student {
 }
 
 export interface Token {
-  student_reg: string;
-  student_name?: string;
-  name?: string;
-  token_id: string;
-  meal_type: string;
-  status: "active" | "approved" | "rejected";
-  created_at: string;
-  issued_by?: string | null;
-  processed_by?: string | null;
+  token_id: string;            // Token UID (e.g. TOK-1786373350)
+  student_reg: string;         // Student Register Number
+  student_name?: string;       // Student Name
+  name?: string;               // Legacy display name fallback
+  meal_type: string;           // "Breakfast" | "Lunch"
+  status: "active" | "redeemed" | "rejected" | "expired" | string;
+  created_at: string;          // Token generation timestamp
+  redeemed_at?: string | null;  // Canteen meal distribution timestamp
+  issued_by?: string | null;   // Staff ID who generated token
+  redeemed_by?: string | null; // Canteen Staff ID who distributed meal
 }
 
 export interface TerminalSession {
