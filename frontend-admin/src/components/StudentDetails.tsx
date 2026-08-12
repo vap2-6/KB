@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   User,
   ShieldCheck,
-  GraduationCap
+  GraduationCap,
+  Download,
+  RotateCcw
 } from "lucide-react";
 import api from "../lib/api";
 
@@ -72,6 +74,9 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState<boolean>(false);
   const [promoting, setPromoting] = useState<boolean>(false);
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState<boolean>(false);
+  const [revoking, setRevoking] = useState<boolean>(false);
+  const [viewTab, setViewTab] = useState<'active' | 'graduated'>('active');
 
   const handlePromoteAcademicYear = async () => {
     setPromoting(true);
@@ -88,6 +93,24 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
       showToast(err?.response?.data?.error || err.message || "Failed to promote academic year", "error");
     } finally {
       setPromoting(false);
+    }
+  };
+
+  const handleRevokeAcademicYear = async () => {
+    setRevoking(true);
+    try {
+      const res = await api.post('/students/revoke-academic-year');
+      if (res.data && (res.data.message || res.status === 200)) {
+        showToast(res.data.message || "Academic year promotion revoked by 1 step successfully!", "success");
+        setIsRevokeModalOpen(false);
+        fetchStudents();
+      } else {
+        showToast(res.data.error || "Failed to revoke academic year promotion", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.error || err.message || "Failed to revoke academic year promotion", "error");
+    } finally {
+      setRevoking(false);
     }
   };
 
@@ -118,44 +141,25 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      // First try /api/students from staff API
-      const res = await api.get('/students');
+      const endpoint = viewTab === 'graduated' ? '/students/graduated' : '/students';
+      const res = await api.get(endpoint);
       const studentRows = Array.isArray(res.data) 
         ? res.data 
         : (res.data?.students || res.data?.rows || []);
 
-      if (studentRows.length > 0) {
-        const mapped: Student[] = studentRows.map((s: any) => ({
-          reg_no: String(s.reg_no || s.student_id || ""),
-          name: s.name || "Unknown Student",
-          department: s.department || s.grade_section || "General",
-          year: formatAcademicYear(s.degree_year || s.year),
-          image_url: s.image_url || s.image_path || s.student_image_path || "",
-          forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
-          afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
-          mobile_no: s.mobile_no || "",
-          email: s.email || ""
-        }));
-        mapped.sort((a, b) => a.reg_no.localeCompare(b.reg_no, undefined, { numeric: true }));
-        setStudents(mapped);
-      } else {
-        // Fallback to /tables/student_meals
-        const tableRes = await api.get('/tables/student_meals');
-        const rows = tableRes.data.rows || [];
-        const mapped: Student[] = rows.map((s: any) => ({
-          reg_no: String(s.student_id || s.reg_no || ""),
-          name: s.name || "Unknown Student",
-          department: s.grade_section || s.department || "General",
-          year: formatAcademicYear(s.degree_year || s.year),
-          image_url: s.image_url || s.image_path || "",
-          forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
-          afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
-          mobile_no: s.mobile_no || "",
-          email: s.email || ""
-        }));
-        mapped.sort((a, b) => a.reg_no.localeCompare(b.reg_no, undefined, { numeric: true }));
-        setStudents(mapped);
-      }
+      const mapped: Student[] = studentRows.map((s: any) => ({
+        reg_no: String(s.student_id || s.reg_no || ""),
+        name: s.name || "Unknown Student",
+        department: s.grade_section || s.department || "General",
+        year: viewTab === 'graduated' ? `Graduated (${s.graduation_year || 'Alumni'})` : formatAcademicYear(s.degree_year || s.year),
+        image_url: s.image_url || s.image_path || s.student_image_path || "",
+        forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
+        afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
+        mobile_no: s.mobile_no || "",
+        email: s.email || ""
+      }));
+      mapped.sort((a, b) => a.reg_no.localeCompare(b.reg_no, undefined, { numeric: true }));
+      setStudents(mapped);
     } catch (err: any) {
       showToast("Failed to fetch student details roster", "error");
     } finally {
@@ -165,7 +169,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+  }, [viewTab]);
 
   // Filter students based on search term
   const filteredStudents = useMemo(() => {
@@ -340,8 +344,33 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex bg-saffron-100/60 p-1 rounded-xl border border-saffron-200 gap-1">
+              <button
+                type="button"
+                onClick={() => setViewTab('active')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  viewTab === 'active' 
+                    ? 'bg-white text-saffron-800 shadow-2xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Active Roster
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab('graduated')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  viewTab === 'graduated' 
+                    ? 'bg-white text-saffron-800 shadow-2xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Graduated Archive
+              </button>
+            </div>
+
             <span className="bg-white text-saffron-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-saffron-200 shadow-2xs">
-              Total Enrolled: {students.length} Students
+              {viewTab === 'graduated' ? `Archived Alumni: ${students.length}` : `Active Enrolled: ${students.length}`}
             </span>
             <button
               onClick={fetchStudents}
@@ -360,6 +389,15 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
             >
               <GraduationCap className="w-4 h-4 text-amber-700" />
               <span>Promote Academic Year</span>
+            </button>
+
+            <button
+              onClick={() => setIsRevokeModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg text-xs font-bold transition-all border border-amber-300 shadow-2xs cursor-pointer active:scale-95"
+              title="Revoke accidental academic year promotion (reverses by 1 step)"
+            >
+              <RotateCcw className="w-4 h-4 text-amber-700" />
+              <span>Revoke Promotion</span>
             </button>
 
             <button
@@ -986,6 +1024,60 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
               >
                 {promoting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <GraduationCap className="w-3.5 h-3.5" />}
                 <span>Confirm Promotion</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. REVOKE ACADEMIC YEAR CONFIRMATION MODAL */}
+      {isRevokeModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-amber-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-200">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Revoke Accidental Promotion?</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                This action will reverse all student academic years by <strong>1 step</strong>:
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left text-xs space-y-1.5 font-semibold text-amber-900">
+                <div className="flex items-center justify-between">
+                  <span>Graduated Students</span>
+                  <span className="font-bold text-emerald-700">➜ 3rd Year (Meal Token Enabled)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>3rd Year Students</span>
+                  <span className="font-bold text-emerald-700">➜ 2nd Year</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>2nd Year Students</span>
+                  <span className="font-bold text-emerald-700">➜ 1st Year</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                Are you sure you want to proceed with reversing student academic progression?
+              </p>
+            </div>
+
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={() => setIsRevokeModalOpen(false)}
+                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={handleRevokeAcademicYear}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {revoking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                <span>Confirm Revoke</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Save, Sun, Moon, GraduationCap } from 'lucide-react';
+import { Calendar, Save, Sun, Moon, GraduationCap, RotateCcw, AlertTriangle, Clock } from 'lucide-react';
 import api from '../lib/api';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -28,6 +28,18 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
   const [loading, setLoading] = useState(true);
   const [migDate, setMigDate] = useState('');
   const [migTime, setMigTime] = useState('');
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [currentDateTime, setCurrentDateTime] = useState<string>('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      setCurrentDateTime(new Date().toLocaleString());
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const formatHHMM = (val?: string, fallback: string = '07:30') => {
     if (!val) return fallback;
@@ -97,8 +109,9 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
         const draftDate = localStorage.getItem('draft_year_migration_date') || '';
         const draftTime = localStorage.getItem('draft_year_migration_time') || '';
 
-        const finalDate = parsed.date || draftDate;
-        const finalTime = parsed.time || draftTime;
+        // Prefer server date over draft if server date exists
+        const finalDate = parsed.date ? parsed.date : draftDate;
+        const finalTime = parsed.time ? parsed.time : draftTime;
 
         setMigDate(finalDate);
         setMigTime(finalTime);
@@ -181,14 +194,37 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
       setMigDate(savedDate);
       setMigTime(savedTime);
 
-      localStorage.setItem('draft_year_migration_date', savedDate);
-      localStorage.setItem('draft_year_migration_time', savedTime);
+      localStorage.removeItem('draft_year_migration_date');
+      localStorage.removeItem('draft_year_migration_time');
 
       showToast('Meal schedule and Year Migration Date saved successfully', 'success');
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Failed to save schedule', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRevokePromotion = async () => {
+    setRevoking(true);
+    try {
+      const res = await api.post('/students/revoke-academic-year');
+      showToast(res.data?.message || 'Academic year promotion revoked by 1 step successfully', 'success');
+      setIsRevokeModalOpen(false);
+
+      const cfgRes = await api.get('/meal-config');
+      const data = cfgRes.data || {};
+      const yearMigStr = data.year_migration_date || '';
+      setConfig(prev => prev ? { ...prev, year_migration_date: yearMigStr } : prev);
+      const parsed = parseYearMigrationStr(yearMigStr);
+      setMigDate(parsed.date);
+      setMigTime(parsed.time);
+      localStorage.setItem('draft_year_migration_date', parsed.date);
+      localStorage.setItem('draft_year_migration_time', parsed.time);
+    } catch (err: any) {
+      showToast(err.response?.data?.error || err.message || 'Failed to revoke promotion', 'error');
+    } finally {
+      setRevoking(false);
     }
   };
 
@@ -220,10 +256,18 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
         <div className="bg-white border border-saffron-100 rounded-2xl shadow-sm p-6 space-y-8">
           {/* Serving Days */}
           <div>
-            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4">
-              <Calendar className="h-4 w-4 text-saffron-500" />
-              Serving Days
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-saffron-500" />
+                Serving Days
+              </h3>
+              {currentDateTime && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-saffron-50/80 border border-saffron-200/70 rounded-xl text-xs font-semibold text-slate-700 shadow-2xs">
+                  <Clock className="h-3.5 w-3.5 text-saffron-600 animate-pulse flex-shrink-0" />
+                  <span><strong className="text-slate-900 font-bold">{currentDateTime}</strong></span>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {WEEKDAYS.map((name, i) => {
                 const active = config?.days.includes(i) ?? false;
@@ -329,6 +373,7 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
                 </label>
                 <input
                   type="date"
+                  min={new Date().toLocaleDateString('sv')}
                   value={migDate}
                   onChange={e => handleMigDateChange(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-saffron-500"
@@ -348,13 +393,73 @@ export default function MealWindows({ showToast }: MealWindowsProps) {
             </div>
             {config?.year_migration_date && (
               <div className="text-[11px] text-slate-600 bg-white border border-saffron-200/60 rounded-lg p-2.5 flex items-center gap-2">
-                <Calendar className="h-3.5 w-3.5 text-saffron-500 flex-shrink-0" />
                 <span>Next scheduled migration: <strong>{new Date(config.year_migration_date).toLocaleString()}</strong></span>
               </div>
             )}
+
+            <div className="pt-3 border-t border-saffron-200/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                  Revoke Accidental Promotion
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRevokeModalOpen(true)}
+                disabled={revoking}
+                className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-semibold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95 disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-amber-700" />
+                Revoke Accidental Promotion
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Revoke Promotion Confirmation Modal */}
+      {isRevokeModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 border border-slate-100">
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="p-2.5 bg-amber-50 rounded-xl">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Revoke Accidental Promotion?</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              This action will reverse all student academic years by <strong>1 step</strong>:
+            </p>
+            <ul className="text-xs text-slate-600 space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-200/60 font-medium">
+              <li>• <strong>Graduated</strong> &rarr; <strong>3rd Year</strong> (restores meal eligibility)</li>
+              <li>• <strong>3rd Year</strong> &rarr; <strong>2nd Year</strong></li>
+              <li>• <strong>2nd Year</strong> &rarr; <strong>1st Year</strong></li>
+            </ul>
+            <p className="text-[11px] text-slate-500">
+              Are you sure you want to proceed with reversing student academic progression?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsRevokeModalOpen(false)}
+                disabled={revoking}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl border border-slate-200 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRevokePromotion}
+                disabled={revoking}
+                className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {revoking ? 'Revoking...' : 'Yes, Revoke Promotion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

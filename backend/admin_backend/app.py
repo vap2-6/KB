@@ -128,12 +128,13 @@ def _get_mysql_connection():
     raise pymysql.err.OperationalError(2003, f"Can't connect to MySQL server on {target_host}")
 
 def _ensure_student_meals_columns(cur):
-    """Ensures required columns exist in student_meals table for media ingestion & student migration."""
+    """Ensures required columns & tables exist for student meals, archive, & migration."""
     student_meals_cols = [
         ('username', 'VARCHAR(50) NULL'),
         ('email', 'VARCHAR(100) NULL'),
         ('password_hash', 'VARCHAR(255) NULL'),
         ('degree_year', 'VARCHAR(50) NULL'),
+        ('previous_degree_year', 'VARCHAR(50) NULL'),
         ('mobile_no', 'VARCHAR(50) NULL'),
         ('qr_secret', 'VARCHAR(64) NULL'),
         ('image_url', 'VARCHAR(512) NULL'),
@@ -147,6 +148,33 @@ def _ensure_student_meals_columns(cur):
             cur.execute(f"ALTER TABLE student_meals ADD COLUMN {col} {col_def}")
         except Exception:
             pass
+
+    # Ensure graduated_students archive table exists
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS `graduated_students` (
+              `student_id` VARCHAR(50) NOT NULL,
+              `username` VARCHAR(50) NOT NULL,
+              `email` VARCHAR(100) NULL,
+              `password_hash` VARCHAR(255) NULL,
+              `name` VARCHAR(100) NOT NULL,
+              `grade_section` VARCHAR(100) NOT NULL,
+              `degree_year` VARCHAR(50) NOT NULL DEFAULT 'Graduated',
+              `previous_degree_year` VARCHAR(50) NULL,
+              `graduation_year` INT NOT NULL,
+              `graduated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              `forenoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+              `afternoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+              `qr_secret` VARCHAR(64) NULL,
+              `image_url` VARCHAR(512) NULL DEFAULT NULL,
+              `image_path` VARCHAR(512) NULL DEFAULT NULL,
+              PRIMARY KEY (`student_id`),
+              INDEX `idx_grad_year` (`graduation_year`),
+              INDEX `idx_grad_time` (`graduated_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
+    except Exception as _ge:
+        logger.warning(f"Notice ensuring graduated_students table: {_ge}")
 
     # Drop unneeded academic_year, income_proof_path and signature_path columns from student_meals if present
     for old_col in ('academic_year', 'income_proof_path', 'signature_path'):
@@ -1326,6 +1354,10 @@ def update_meal_timings():
 def get_students():
     conn = get_db()
     try:
+        try:
+            _check_and_run_automated_year_migration(conn)
+        except Exception as _me:
+            logger.warning("Migration check in get_students: %s", _me)
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM student_meals ORDER BY student_id ASC")
             rows = cur.fetchall()
@@ -1430,21 +1462,132 @@ def _add_one_year(dt):
         return dt.replace(year=dt.year + 1, day=28)
 
 def _execute_year_migration(conn):
-    """Batch migrates student academic years: 1st Year -> 2nd Year -> 3rd Year -> Graduated."""
+    """Batch migrates student academic years:
+       1. Active 3rd Year students move to `graduated_students` archive table.
+       2. Active 2nd Year -> 3rd Year (saving previous_degree_year = '2nd Year').
+       3. Active 1st Year -> 2nd Year (saving previous_degree_year = '1st Year').
+    """
+    current_year = datetime.datetime.now().year
     with conn.cursor() as cur:
-        # 3rd Year -> Graduated (disable active meal eligibility for graduated students in student_meals)
+        # Step 1: Move 3rd Year students to graduated_students archive
+        cur.execute(f"""
+            INSERT INTO graduated_students (
+                student_id, username, email, password_hash, name, grade_section,
+                degree_year, previous_degree_year, graduation_year, forenoon_meal,
+                afternoon_meal, qr_secret, image_url, image_path
+            )
+            SELECT 
+                student_id, username, email, password_hash, name, grade_section,
+                'Graduated', degree_year, {current_year}, 0, 0, qr_secret, image_url, image_path
+            FROM student_meals
+            WHERE degree_year LIKE '3rd%' OR degree_year = '3' OR degree_year = 'Graduated'
+            ON DUPLICATE KEY UPDATE 
+                degree_year = 'Graduated', graduation_year = VALUES(graduation_year), graduated_at = CURRENT_TIMESTAMP;
+        """)
+
+        # Delete archived graduates from active student_meals roster
+        cur.execute("DELETE FROM student_meals WHERE degree_year LIKE '3rd%' OR degree_year = '3' OR degree_year = 'Graduated';")
+
+        # Step 2: 2nd Year -> 3rd Year
         cur.execute("""
             UPDATE student_meals 
-            SET degree_year = 'Graduated', forenoon_meal = 0, afternoon_meal = 0 
+            SET previous_degree_year = degree_year, degree_year = '3rd Year' 
+            WHERE degree_year LIKE '2nd%' OR degree_year = '2';
+        """)
+
+        # Step 3: 1st Year -> 2nd Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET previous_degree_year = degree_year, degree_year = '2nd Year' 
+            WHERE degree_year LIKE '1st%' OR degree_year = '1';
+        """)
+
+        conn.commit()
+
+def _execute_revoke_year_migration(conn):
+    """Reverses student academic year progression:
+       1. Active 2nd Year -> 1st Year (or previous_degree_year)
+       2. Active 3rd Year -> 2nd Year (or previous_degree_year)
+       3. Restores latest batch from `graduated_students` archive table back to active `student_meals` as 3rd Year.
+       4. Rolls back year_migration_date by -1 year in app_state.
+    """
+    with conn.cursor() as cur:
+        # Step 1: Revert 2nd Year -> 1st Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET degree_year = IF(previous_degree_year IS NOT NULL AND previous_degree_year != '', previous_degree_year, '1st Year')
+            WHERE degree_year LIKE '2nd%' OR degree_year = '2';
+        """)
+
+        # Step 2: Revert 3rd Year -> 2nd Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET degree_year = IF(previous_degree_year IS NOT NULL AND previous_degree_year != '', previous_degree_year, '2nd Year')
             WHERE degree_year LIKE '3rd%' OR degree_year = '3';
         """)
-        
-        # 2nd Year -> 3rd Year
-        cur.execute("UPDATE student_meals SET degree_year = '3rd Year' WHERE degree_year LIKE '2nd%' OR degree_year = '2';")
-        
-        # 1st Year -> 2nd Year
-        cur.execute("UPDATE student_meals SET degree_year = '2nd Year' WHERE degree_year LIKE '1st%' OR degree_year = '1';")
-        
+
+        # Step 3: Find most recent graduation_year batch in graduated_students
+        cur.execute("SELECT MAX(graduation_year) as max_year FROM graduated_students")
+        row = cur.fetchone()
+        max_year = row['max_year'] if row and row.get('max_year') else None
+
+        if max_year is not None:
+            cur.execute(f"""
+                INSERT INTO student_meals (
+                    student_id, username, email, password_hash, name, grade_section,
+                    degree_year, previous_degree_year, forenoon_meal, afternoon_meal,
+                    qr_secret, image_url, image_path
+                )
+                SELECT 
+                    student_id, username, email, password_hash, name, grade_section,
+                    IF(previous_degree_year IS NOT NULL AND previous_degree_year != '' AND previous_degree_year != 'Graduated', previous_degree_year, '3rd Year'),
+                    'Graduated', 1, 1, qr_secret, image_url, image_path
+                FROM graduated_students
+                WHERE graduation_year = {int(max_year)}
+                ON DUPLICATE KEY UPDATE 
+                    degree_year = VALUES(degree_year), forenoon_meal = 1, afternoon_meal = 1;
+            """)
+
+            cur.execute(f"DELETE FROM graduated_students WHERE graduation_year = {int(max_year)}")
+
+        # Rollback year_migration_date by -1 year in app_state if set
+        try:
+            cur.execute("SELECT data FROM app_state WHERE id = 1 FOR UPDATE")
+            state_row = cur.fetchone()
+            if state_row and state_row.get('data'):
+                state = json.loads(state_row['data']) if isinstance(state_row['data'], str) else state_row['data']
+                meal_cfg = state.get('meal_config')
+                if meal_cfg and isinstance(meal_cfg, dict):
+                    migration_str = meal_cfg.get('year_migration_date')
+                    if migration_str and str(migration_str).strip():
+                        migration_str = str(migration_str).strip()
+                        dt_obj = None
+                        formats = (
+                            "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                            "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+                            "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
+                            "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+                            "%Y/%m/%YT%H:%M:%S", "%Y/%m/%YT%H:%M", "%Y/%m/%Y %H:%M:%S", "%Y/%m/%Y %H:%M"
+                        )
+                        for fmt in formats:
+                            try:
+                                dt_obj = datetime.datetime.strptime(migration_str, fmt)
+                                break
+                            except ValueError:
+                                continue
+                        if dt_obj:
+                            try:
+                                rolled_back_dt = dt_obj.replace(year=dt_obj.year - 1)
+                            except ValueError:
+                                rolled_back_dt = dt_obj.replace(year=dt_obj.year - 1, day=28)
+                            new_str = rolled_back_dt.strftime("%Y-%m-%dT%H:%M")
+                            meal_cfg['year_migration_date'] = new_str
+                            meal_cfg['skip_migration_date'] = new_str
+                            state['meal_config'] = meal_cfg
+                            cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
+        except Exception as err:
+            logger.warning("Notice rolling back year_migration_date in revoke: %s", err)
+
         conn.commit()
 
 def _check_and_run_automated_year_migration(conn):
@@ -1466,6 +1609,9 @@ def _check_and_run_automated_year_migration(conn):
                 return
             
             migration_str = str(migration_str).strip()
+            skip_str = meal_cfg.get('skip_migration_date')
+            if skip_str and str(skip_str).strip() == migration_str:
+                return
             dt_obj = None
             formats = (
                 "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
@@ -1498,6 +1644,7 @@ def _check_and_run_automated_year_migration(conn):
                 
                 new_migration_str = next_dt.strftime("%Y-%m-%dT%H:%M")
                 meal_cfg['year_migration_date'] = new_migration_str
+                meal_cfg.pop('skip_migration_date', None)
                 state['meal_config'] = meal_cfg
                 
                 cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
@@ -1660,9 +1807,12 @@ def update_meal_config():
                 row = cur.fetchone()
                 conn.autocommit(False)
                 if row:
-                    state = json.loads(row['data'])
+                    state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
                 else:
                     state = {}
+                # Clear any skip_migration_date so newly set date triggers properly
+                if isinstance(state.get('meal_config'), dict):
+                    state['meal_config'].pop('skip_migration_date', None)
                 state['meal_config'] = cfg
                 if row:
                     cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
@@ -1680,7 +1830,7 @@ def update_meal_config():
             return jsonify({"error": f"Failed to save meal windows: {str(sql_err)}"}), 400
         finally:
             conn.close()
-        _log_audit(_get_auditor_username(), 'UPDATE_CONFIG', 'meal_config', f"Updated meal config: {len(days)} days, forenoon {cfg['forenoon']['start']}-{cfg['forenoon']['end']}, afternoon {cfg['afternoon']['start']}-{cfg['afternoon']['end']}, year_migration_date {year_migration_date}")
+        _log_audit(_get_auditor_username(), 'UPDATE_CONFIG', 'meal_config', f"Updated meal config: {len(days)} days, forenoon {cfg['forenoon']['start']}-{cfg['forenoon']['end']}, afternoon {cfg['afternoon']['start']}-{cfg['afternoon']['end']}, year_migration_date {normalized_mig_date}")
         return jsonify(final_cfg)
     except Exception as e:
         logger.error("Error in update_meal_config: %s", e)
@@ -1688,7 +1838,8 @@ def update_meal_config():
 
 def _start_migration_scheduler():
     def _scheduler_loop():
-        time.sleep(5)
+        time.sleep(2)
+        logger.info("YearMigrationSchedulerThread daemon started (5s poll interval)")
         while True:
             try:
                 conn = get_db()
@@ -1696,9 +1847,9 @@ def _start_migration_scheduler():
                     _check_and_run_automated_year_migration(conn)
                 finally:
                     conn.close()
-            except Exception:
-                pass
-            time.sleep(30)
+            except Exception as e:
+                logger.error("Error in scheduler loop: %s", e)
+            time.sleep(5)
     
     t = threading.Thread(target=_scheduler_loop, daemon=True, name="YearMigrationSchedulerThread")
     t.start()
@@ -2164,6 +2315,45 @@ def promote_academic_year():
         return jsonify({"message": "Student academic year progression completed successfully."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@admin_bp.route('/students/revoke-academic-year', methods=['POST'])
+@admin_bp.route('/api/students/revoke-academic-year', methods=['POST'])
+@authenticate
+@require_role('admin')
+def revoke_academic_year():
+    """Reverses student academic year progression by one step:
+       2nd Year -> 1st Year, 3rd Year -> 2nd Year, Graduated -> 3rd Year.
+    """
+    try:
+        conn = get_db()
+        try:
+            _execute_revoke_year_migration(conn)
+        finally:
+            conn.close()
+        _log_audit(_get_auditor_username(), 'REVOKE_YEAR_MIGRATION', 'student_meals', "Revoked student academic year progression by 1 step.")
+        return jsonify({"message": "Student academic year promotion revoked by 1 step successfully."})
+    except Exception as e:
+        logger.error("Error in revoke_academic_year: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.route('/students/graduated', methods=['GET'])
+@admin_bp.route('/api/students/graduated', methods=['GET'])
+@authenticate
+@require_role('admin')
+def get_graduated_students():
+    """Returns list of archived graduated students."""
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM graduated_students ORDER BY graduation_year DESC, name ASC")
+                rows = cur.fetchall()
+                return jsonify({"students": serialize_row(rows), "count": len(rows)})
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error("Error fetching graduated_students: %s", e)
+        return jsonify({"students": [], "count": 0, "error": str(e)})
 
 def _normalize_registration_row(r):
     if not r:
