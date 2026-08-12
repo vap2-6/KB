@@ -1627,8 +1627,17 @@ export default function App() {
                     {/* Info grid */}
                     <div className="flex-grow w-full space-y-6">
                       <div>
-                        <p className={`text-xs font-bold uppercase tracking-widest ${theme === 'black' ? 'text-amber-400 dark:text-amber-400' : 'text-amber-600'
-                          }`}>Student Profile</p>
+                        <div className="flex items-center gap-2">
+                          <p className={`text-xs font-bold uppercase tracking-widest ${theme === 'black' ? 'text-amber-400 dark:text-amber-400' : 'text-amber-600'
+                            }`}>Student Profile</p>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border tracking-wider ${
+                            (loggedInStudent.student_category || "Regular").toUpperCase() === "NCC"
+                              ? "bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs"
+                              : "bg-blue-50 text-blue-800 border-blue-200"
+                          }`}>
+                            {(loggedInStudent.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular Student"}
+                          </span>
+                        </div>
                         <h2 className={`text-2xl font-bold font-display mt-0.5 ${theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900'
                           }`}>{loggedInStudent.name}</h2>
                         <p className={`text-xs font-semibold ${theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-500'
@@ -1639,6 +1648,14 @@ export default function App() {
                         }`}>
                         <div className="space-y-2">
                           <div className="grid grid-cols-2 gap-2">
+                            <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Category:</span>
+                            <span className={`font-extrabold uppercase ${
+                              (loggedInStudent.student_category || "Regular").toUpperCase() === "NCC"
+                                ? "text-emerald-500"
+                                : (theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900')
+                            }`}>
+                              {(loggedInStudent.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular"}
+                            </span>
                             <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Department:</span>
                             <span className={`font-semibold ${theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900'}`}>{loggedInStudent.dept || 'Student'}</span>
                             <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Year:</span>

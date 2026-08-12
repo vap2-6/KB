@@ -108,6 +108,7 @@ def map_db_student_to_frontend(db_student):
         'name': db_student.get('name') or db_student.get('display_name') or db_student.get('username') or 'Unknown Student',
         'year': year,
         'department': dept,
+        'student_category': db_student.get('student_category') or 'Regular',
         'image_url': img,
         'forenoon_meal': bool(db_student.get('forenoon_meal', 1)),
         'afternoon_meal': bool(db_student.get('afternoon_meal', 1))
@@ -158,6 +159,35 @@ def _find_token_and_student(cursor, search_ids, decoded_token_uid=None, decoded_
         db_token = cursor.fetchone()
         if db_token:
             break
+
+        cursor.execute("SELECT * FROM guest_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
+        gt = cursor.fetchone()
+        if gt:
+            is_claimed = (gt.get('claimed_count') or 0) >= (gt.get('pass_count') or 1) or gt.get('status') == 'claimed'
+            status = 'claimed' if is_claimed else gt.get('status', 'active')
+            db_token = {
+                'id': gt['id'],
+                'token_uid': gt['token_uid'],
+                'student_id': f"GUEST-{gt['id']}",
+                'cached_student_name': gt['guest_name'],
+                'meal_type': f"{gt.get('pass_count', 1)} Pass ({gt.get('claimed_count', 0)}/{gt.get('pass_count', 1)} Claimed)",
+                'status': status,
+                'is_guest_token': True,
+                'pass_count': gt.get('pass_count', 1),
+                'claimed_count': gt.get('claimed_count', 0),
+                'valid_date': gt['valid_date'],
+                'created_at': gt['created_at']
+            }
+            db_student = {
+                'student_id': f"GUEST-{gt['id']}",
+                'name': gt['guest_name'],
+                'grade_section': gt.get('guest_role') or 'Official Guest Pass',
+                'forenoon_meal': 1,
+                'afternoon_meal': 1,
+                'image_url': None,
+                'image_path': None
+            }
+            return db_token, db_student
 
     if not db_token:
         student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))

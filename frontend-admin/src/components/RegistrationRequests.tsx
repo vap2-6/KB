@@ -13,6 +13,7 @@ interface RegistrationRow {
   course?: string;
   department?: string;
   degree_year?: string;
+  student_category?: string;
   dept_number?: string;
   mobile_no?: string;
   landline?: string;
@@ -241,7 +242,18 @@ export default function RegistrationRequests({ showToast, onCountChange }: Regis
                       {/* Top Right Photo Card Header */}
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-slate-900 text-base">{r.student_name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900 text-base">{r.student_name}</h4>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-wider ${
+                                (r.student_category || "Regular").toUpperCase() === "NCC"
+                                  ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                                  : "bg-blue-50 text-blue-800 border-blue-200"
+                              }`}
+                            >
+                              {(r.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular"}
+                            </span>
+                          </div>
                           <p className="text-xs text-saffron-700 font-semibold mt-0.5">
                             {r.course} {r.department ? `• ${r.department}` : ''} {r.degree_year ? `• Year ${r.degree_year}` : ''}
                           </p>

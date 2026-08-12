@@ -3,6 +3,7 @@ export interface Student {
   name: string;
   year: string;
   department: string;
+  student_category?: string;
   image_url: string;
   forenoon_meal?: boolean;
   afternoon_meal?: boolean;

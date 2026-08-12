@@ -26,24 +26,18 @@ import {
   Printer,
   Filter,
   Users,
-<<<<<<< Updated upstream
   Activity,
   Search,
   Sun,
-  Moon
-=======
+  Moon,
   HeartHandshake
->>>>>>> Stashed changes
 } from "lucide-react";
 import { Student, Token, TerminalSession, ScanMode } from "./types";
 import QRScanner from "./components/QRScanner";
 import { IssueTokenModal, VerifyTokenModal } from "./components/Modals";
 import StudentDetails from "./components/StudentDetails";
-<<<<<<< Updated upstream
 import rkmLogo from "./assets/images/rkm_logo.png";
-=======
 import VolunteerPermitting from "./components/VolunteerPermitting";
->>>>>>> Stashed changes
 
 // Safely wrap sessionStorage to prevent SecurityErrors in sandboxed/cross-origin iframes
 const safeSessionStorage = {
@@ -1117,7 +1111,7 @@ export default function App() {
               }`}
             >
               <HeartHandshake className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
-              <span>Volunteer Passes</span>
+              <span>Guest Passes</span>
             </button>
 
             <button
@@ -1496,6 +1490,13 @@ export default function App() {
             </div>
           )}
 
+          {/* VOLUNTEER PERMITTING VIEW */}
+          {activeTab === "volunteers" && (
+            <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
+              <VolunteerPermitting staffId={session?.staffId} showToast={showToast} playBeep={playBeep} />
+            </div>
+          )}
+          
           {/* B: STUDENT DETAILS VIEW */}
           {activeTab === "students" && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
@@ -1503,7 +1504,6 @@ export default function App() {
             </div>
           )}
 
-<<<<<<< Updated upstream
           {/* C: EXPORT PORTAL VIEW (Token Monitoring & Distribution) */}
           {activeTab === "export" && (() => {
             const baseExportTokens = tokens.filter((t) => {
@@ -1515,19 +1515,6 @@ export default function App() {
                   if (startDate && itemDateStr < startDate) return false;
                   if (endDate && itemDateStr > endDate) return false;
                 }
-=======
-          {/* VOLUNTEER PERMITTING VIEW */}
-          {activeTab === "volunteers" && (
-            <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
-              <VolunteerPermitting staffId={session?.staffId} showToast={showToast} playBeep={playBeep} />
-            </div>
-          )}
-
-          {/* C: EXPORT PORTAL VIEW (Statement Ledger) */}
-          {activeTab === "export" && (
-            <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
-              
->>>>>>> Stashed changes
 
                 // Meal check
                 if (mealFilter !== "all" && mealFilter !== "") {
