@@ -27,4 +27,19 @@ staffApi.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
+export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem("token");
+  const headers: Record<string, string> = {
+    "ngrok-skip-browser-warning": "69420",
+    ...(options.headers as Record<string, string> || {})
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return fetch(endpoint, {
+    ...options,
+    headers
+  });
+};
+
 export default staffApi;

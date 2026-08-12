@@ -37,7 +37,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
   const [volunteerRole, setVolunteerRole] = useState("");
   const [phoneNo, setPhoneNo] = useState("");
   const [email, setEmail] = useState("");
-  const [mealType, setMealType] = useState<"forenoon" | "afternoon" | "both">("afternoon");
+  const [passCount, setPassCount] = useState<1 | 2>(1);
   const [sendVia, setSendVia] = useState<"whatsapp" | "email" | "both">("both");
   const [validDate, setValidDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [note, setNote] = useState("");
@@ -111,10 +111,10 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           volunteer_name: volunteerName.trim(),
-          volunteer_role: volunteerRole.trim() || "Event Volunteer",
+          volunteer_role: volunteerRole.trim() || "Guest",
           phone_no: phoneNo.trim(),
           email: email.trim(),
-          meal_type: mealType,
+          pass_count: passCount,
           send_via: sendVia,
           staff_id: staffId,
           valid_date: validDate,
@@ -127,10 +127,10 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
         
         // Show success modal pass card
         setActivePassModal({
-          token_id: result.primary_token_uid || result.tokens?.[0]?.token_uid || "TOK-VOL-001",
+          token_id: result.token_uid || result.primary_token_uid || "GUS-001",
           volunteer_name: result.volunteer_name,
           volunteer_role: result.volunteer_role,
-          meal_type: mealType === "both" ? "Breakfast & Lunch (Full Day Pass)" : mealType === "forenoon" ? "Forenoon (Breakfast)" : "Afternoon (Lunch)",
+          meal_type: `${passCount} Meal Pass (${passCount >= 2 ? 'Both Meals' : 'Single Meal'})`,
           valid_date: result.valid_date,
           phone_no: result.phone_no,
           email: result.email,
@@ -227,13 +227,13 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
         <div className="space-y-2 z-10">
           <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-amber-100">
             <HeartHandshake className="w-3.5 h-3.5" />
-            <span>Staff Portal &bull; Volunteer Token Hub</span>
+            <span>Staff Portal &bull; Guest Token Hub</span>
           </div>
           <h2 className="text-2xl md:text-3xl font-black tracking-tight font-display">
-            Volunteer Meal Pass Permitting
+            Guest Meal Pass Permitting
           </h2>
           <p className="text-amber-100 text-xs md:text-sm max-w-2xl font-medium leading-relaxed">
-            Generate official meal authentication vouchers for event volunteers and dispatch pass cards instantly via WhatsApp or Email.
+            Generate official meal authentication vouchers for guests & event volunteers and dispatch pass cards instantly via WhatsApp or Email.
           </p>
         </div>
         <div className="shrink-0 z-10 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-center flex flex-col items-center">
@@ -251,10 +251,10 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
           <div className="border-b border-slate-100 pb-4">
             <h3 className="text-md font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-amber-500" />
-              <span>Permit Volunteer Token</span>
+              <span>Permit Guest Token</span>
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Enter volunteer details and choose dispatch channel (WhatsApp or Email).
+              Enter guest details and choose dispatch channel (WhatsApp or Email).
             </p>
           </div>
 
@@ -271,12 +271,12 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-amber-600" />
-                <span>Volunteer Full Name *</span>
+                <span>Guest Full Name *</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. John Doe / Rajesh Kumar"
+                placeholder="e.g. Guest Name / Chief Guest / Inspector"
                 value={volunteerName}
                 onChange={(e) => setVolunteerName(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
@@ -287,55 +287,46 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-amber-600" />
-                <span>Event / Role / Department</span>
+                <span>Role / Purpose / Department</span>
               </label>
               <input
                 type="text"
-                placeholder="e.g. Sports Day NSS / Cultural Fest Coordinator"
+                placeholder="e.g. Special Guest / Event Speaker / Inspector"
                 value={volunteerRole}
                 onChange={(e) => setVolunteerRole(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
               />
             </div>
 
-            {/* Meal Session */}
+            {/* Pass Count Selection (1 Pass or 2 Passes) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Meal Session Eligibility
+                Number of QR Tokens / Meal Passes
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setMealType("forenoon")}
-                  className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
-                    mealType === "forenoon"
-                      ? "bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/20"
+                  onClick={() => setPassCount(1)}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                    passCount === 1
+                      ? "bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/20 shadow-xs"
                       : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
-                  Breakfast
+                  <span className="text-sm font-black">1 Meal Pass</span>
+                  <span className="text-[10px] font-normal text-slate-500">Single Meal (Breakfast or Lunch)</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMealType("afternoon")}
-                  className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
-                    mealType === "afternoon"
-                      ? "bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/20"
+                  onClick={() => setPassCount(2)}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                    passCount === 2
+                      ? "bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/20 shadow-xs"
                       : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
-                  Lunch
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMealType("both")}
-                  className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
-                    mealType === "both"
-                      ? "bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/20"
-                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                  }`}
-                >
-                  Both Pass
+                  <span className="text-sm font-black">2 Meal Passes</span>
+                  <span className="text-[10px] font-normal text-slate-500">Both Meals (Breakfast & Lunch)</span>
                 </button>
               </div>
             </div>
@@ -407,11 +398,11 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Volunteer Email Address *</span>
+                  <span>Guest Email Address *</span>
                 </label>
                 <input
                   type="email"
-                  placeholder="e.g. volunteer@example.com"
+                  placeholder="e.g. guest@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
@@ -456,7 +447,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Permitting Volunteer Token...</span>
+                  <span>Permitting Guest Token...</span>
                 </>
               ) : (
                 <>
@@ -474,13 +465,13 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-md font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2">
-                <span>Volunteer Pass Ledger</span>
+                <span>Guest Pass Ledger</span>
                 <span className="text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-mono">
                   {filteredTokens.length} Passes
                 </span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                History of all permitted volunteer meal tokens.
+                History of all permitted guest meal tokens.
               </p>
             </div>
             <button
@@ -498,7 +489,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by Volunteer Name, Phone, Email, or Token ID..."
+              placeholder="Search by Guest Name, Phone, Email, or Token ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
@@ -508,7 +499,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
           {/* Table */}
           {filteredTokens.length === 0 ? (
             <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center text-slate-400 italic text-xs">
-              {isLoadingList ? "Loading volunteer tokens..." : "No volunteer passes found."}
+              {isLoadingList ? "Loading guest tokens..." : "No guest passes found."}
             </div>
           ) : (
             <div className="overflow-hidden border border-slate-200 rounded-2xl">
@@ -516,7 +507,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
                 <table className="w-full text-left text-[11px] border-collapse">
                   <thead className="bg-slate-50 text-slate-700 font-bold sticky top-0 z-10">
                     <tr className="border-b border-slate-200">
-                      <th className="py-3 px-3">Volunteer</th>
+                      <th className="py-3 px-3">Guest</th>
                       <th className="py-3 px-3">Token ID</th>
                       <th className="py-3 px-3">Meal</th>
                       <th className="py-3 px-3">Status</th>
@@ -634,7 +625,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
                 />
               </div>
               <h3 className="text-lg font-black tracking-tight font-display uppercase">Ramakrishna Mission Vivekananda College</h3>
-              <p className="text-xs text-amber-100 font-bold uppercase tracking-wider mt-0.5">Official Volunteer Meal Voucher Pass</p>
+              <p className="text-xs text-amber-100 font-bold uppercase tracking-wider mt-0.5">Official Guest Meal Voucher Pass</p>
             </div>
 
             {/* Pass Content Body */}
@@ -663,7 +654,7 @@ export default function VolunteerPermitting({ staffId = "STAFF101", showToast, p
               {/* Details List */}
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs space-y-2 text-left">
                 <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
-                  <span className="text-slate-500 font-medium">Volunteer Name</span>
+                  <span className="text-slate-500 font-medium">Guest Name</span>
                   <span className="font-extrabold text-slate-900">{activePassModal.volunteer_name}</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">

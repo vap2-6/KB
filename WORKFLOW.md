@@ -161,3 +161,60 @@ Everyday token generation report should be generated as pdf file and stored in a
 - And the randomly generated password should be updated in the database for the particular user. So when the user logs in with the randomly generated password, he should be able to login successfully.
 
 - Separate login page for students and staff, and also separate pages for their forget password page.
+
+---
+
+## 7. Automated Student Academic Year Migration Engine
+
+### Overview & Progression Flow
+The Admin Portal provides an automated scheduled migration tool that advances student academic years automatically without manual intervention:
+1. **Academic Progression Logic**:
+   - `1st Year` → `2nd Year`
+   - `2nd Year` → `3rd Year`
+   - `3rd Year` → `Graduated`
+2. **Meal Eligibility Locking**: When students reach `Graduated` status, their meal eligibility indicators (`forenoon_meal` and `afternoon_meal`) are automatically set to `0` (disabled).
+3. **Automated Annual Scheduling (+1 Year Roll-Forward)**:
+   - When the scheduled date/time (`year_migration_date` in `app_state`) arrives or is set in the past, the backend automatically triggers student progression.
+   - Upon completion, the system automatically advances the scheduled date to the exact same date and time **one year in the future** (e.g. `2026-08-11T06:00` → `2027-08-11T06:00`).
+4. **Flexible Date Format Normalization**: Backend date parsers accept multiple date string formats (`YYYY-MM-DD`, `DD-MM-YYYY`, `DD/MM/YYYY`, `MM/DD/YYYY`).
+5. **Draft Persistence**: Admin input values in `MealWindows.tsx` automatically persist across browser refreshes via `localStorage` draft saving.
+
+---
+
+## 8. Guest Permitting & Dispatch Module
+
+### Staff Portal Guest Workflow
+The Staff Portal includes a dedicated **Guest Passes / Guest Permitting** module (`activeTab === 'volunteers'`) for guests, event volunteers, and duty staff.
+
+1. **Pass Permitting Form**: Staff members fill out guest details (Name, Role/Purpose, Mobile Number, Email, Number of QR Tokens / Pass Count: `1 Pass` or `2 Passes`, Valid Date, Notes).
+2. **Dedicated Database Architecture (`guest_tokens` Table)**:
+   - Stores guest passes in a completely independent `guest_tokens` relational table (`id`, `token_uid`, `guest_name`, `guest_role`, `phone_no`, `email`, `pass_count`, `claimed_count`, `valid_date`, `status`).
+   - **Zero dependency or pollution on `student_meals`**.
+3. **GUS- Token Format Prefix**:
+   - Guest tokens use an explicit **`GUS-`** prefix (e.g. `GUS-1786468102`) to be instantly recognizable from student tokens (`TOK-xxxx`).
+4. **Multi-Channel Dispatch Engine**:
+   - **WhatsApp Dispatch**: Generates formatted click-to-send WhatsApp messages (`https://wa.me/...`) containing the guest name, role/purpose, `GUS-` token ID, pass count, valid date, and counter claiming instructions.
+   - **Branded Email Dispatch**: Invokes `send_volunteer_pass_email()` in `admin_backend/email_service.py` to send an HTML email pass containing an embedded `GUS-` QR code payload.
+   - **Resend Email Feature**: Allows staff to re-trigger email pass delivery directly from the guest pass history table (`POST /api/staff/volunteer-tokens/resend-email`).
+5. **Canteen Scanning & Multi-Claim Tracking**:
+   - Canteen staff scan the `GUS-` QR code.
+   - The backend validates the pass against `guest_tokens` and tracks `claimed_count` up to `pass_count`. When `claimed_count >= pass_count`, status transitions to `claimed`.
+
+---
+
+## 9. NCC Student Expansion & Student Category System
+
+The service expands coverage to **NCC Students / Cadets** alongside **Regular Students**:
+
+1. **Database Schema Attribute**:
+   - `student_category` (`VARCHAR(20) DEFAULT 'Regular'`) attribute present in `student_meals` and `meal_registrations`.
+   - Supports `'Regular'` and `'NCC'` values.
+2. **Registration Form Selection**:
+   - Registration form includes a **Student Category** selector allowing applicants to register as `Regular Student` or `NCC Student / Cadet`.
+3. **Approval Pipeline Sync**:
+   - When registration applications are approved by admins, `_sync_approved_registrations_to_student_meals()` automatically copies `student_category` into `student_meals`.
+4. **Multi-Portal Badging & Filtering**:
+   - **Admin Portal**: Displays `NCC Cadet` badges on pending requests and student details table, with category filtering (`All Categories`, `Regular Students`, `NCC Cadets`).
+   - **Staff & Canteen Portals**: Render explicit `NCC Cadet` badges in verification view modals and gate scan popups.
+   - **Student Portal**: Displays `Student Category: NCC Cadet` or `Regular Student` on the student profile dashboard card.
+

@@ -22,6 +22,7 @@ export interface Student {
   name: string;
   year: string;
   department: string;
+  student_category?: string;
   image_url?: string;
   forenoon_meal?: boolean;
   afternoon_meal?: boolean;
@@ -62,6 +63,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [entriesPerPage, setEntriesPerPage] = useState<number>(10);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -97,6 +99,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     name: string;
     department: string;
     year: string;
+    student_category: string;
     forenoon_meal: boolean;
     afternoon_meal: boolean;
     email: string;
@@ -106,6 +109,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     name: "",
     department: "Computer Applications",
     year: "1st Year",
+    student_category: "Regular",
     forenoon_meal: true,
     afternoon_meal: true,
     email: "",
@@ -130,6 +134,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
           name: s.name || "Unknown Student",
           department: s.department || s.grade_section || "General",
           year: formatAcademicYear(s.degree_year || s.year),
+          student_category: s.student_category || "Regular",
           image_url: s.image_url || s.image_path || s.student_image_path || "",
           forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
           afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
@@ -146,6 +151,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
           name: s.name || "Unknown Student",
           department: s.grade_section || s.department || "General",
           year: formatAcademicYear(s.degree_year || s.year),
+          student_category: s.student_category || "Regular",
           image_url: s.image_url || s.image_path || "",
           forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
           afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,
@@ -165,18 +171,23 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
     fetchStudents();
   }, []);
 
-  // Filter students based on search term
+  // Filter students based on search term and category
   const filteredStudents = useMemo(() => {
+    let list = students;
+    if (categoryFilter !== "all") {
+      list = list.filter((s) => (s.student_category || "Regular").toUpperCase() === categoryFilter.toUpperCase());
+    }
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return students;
-    return students.filter(
+    if (!q) return list;
+    return list.filter(
       (s) =>
         s.reg_no.toLowerCase().includes(q) ||
         s.name.toLowerCase().includes(q) ||
         (s.department || "").toLowerCase().includes(q) ||
-        (s.year || "").toLowerCase().includes(q)
+        (s.year || "").toLowerCase().includes(q) ||
+        (s.student_category || "").toLowerCase().includes(q)
     );
-  }, [students, searchTerm]);
+  }, [students, searchTerm, categoryFilter]);
 
   // Pagination calculation
   const totalEntries = filteredStudents.length;
@@ -412,6 +423,20 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
               </button>
             )}
           </div>
+
+          {/* Category Filter Dropdown */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="bg-slate-50 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-saffron-500 cursor-pointer shadow-2xs"
+          >
+            <option value="all">All Categories</option>
+            <option value="Regular">Regular Students</option>
+            <option value="NCC">NCC Cadets</option>
+          </select>
         </div>
       </div>
 
@@ -427,6 +452,7 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                 <th className="py-3.5 px-4 min-w-[180px]">Name</th>
                 <th className="py-3.5 px-4 min-w-[200px]">Program</th>
                 <th className="py-3.5 px-4 w-32">Semester / Year</th>
+                <th className="py-3.5 px-4 w-28 text-center">Category</th>
                 <th className="py-3.5 px-4 w-28 text-center">Forenoon</th>
                 <th className="py-3.5 px-4 w-28 text-center">Afternoon</th>
                 <th className="py-3.5 px-4 w-28 text-center">Actions</th>
@@ -499,6 +525,19 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
                       <td className="py-3 px-4 text-slate-700 font-semibold">
                         <span className="inline-block px-2.5 py-1 bg-saffron-50 text-saffron-800 rounded-md border border-saffron-200 text-[11px] font-bold">
                           {student.year}
+                        </span>
+                      </td>
+
+                      {/* Category */}
+                      <td className="py-3 px-4 text-center">
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-extrabold border uppercase tracking-wider ${
+                            (student.student_category || "Regular").toUpperCase() === "NCC"
+                              ? "bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs"
+                              : "bg-blue-50 text-blue-800 border-blue-200"
+                          }`}
+                        >
+                          {(student.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular"}
                         </span>
                       </td>
 
