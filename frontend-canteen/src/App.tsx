@@ -152,6 +152,7 @@ export default function App() {
 
   // Active Modals state
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [existingToken, setExistingToken] = useState<Token | null>(null);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
 
   const [currentTokenData, setCurrentTokenData] = useState<{ token: Token; student: Student } | null>(null);
@@ -274,7 +275,9 @@ export default function App() {
     if (rawEnv.startsWith('http')) {
       try {
         const u = new URL(rawEnv);
-        hostBase = u.origin;
+        if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || u.hostname === window.location.hostname)) {
+          hostBase = u.origin;
+        }
       } catch (_) {
         hostBase = rawEnv.replace(/\/api.*$/, '');
       }
@@ -310,7 +313,12 @@ export default function App() {
       const res = await apiFetch("/api/students");
       if (res.ok) {
         const data = await res.json();
-        setStudents(data);
+        const sorted = Array.isArray(data) ? [...data].sort((a: any, b: any) => {
+          const idA = String(a.id || a.roll || a.reg_no || '').trim();
+          const idB = String(b.id || b.roll || b.reg_no || '').trim();
+          return idA.localeCompare(idB, undefined, { numeric: true });
+        }) : data;
+        setStudents(sorted);
         return;
       }
     } catch (e) {
@@ -663,7 +671,9 @@ export default function App() {
       if (scanRes.ok) {
         const tokenData = await scanRes.json();
 
-        if (tokenData.token) {
+        const isExplicitTokenScan = tokenData.scanned_type === "token_qr" || (tokenData.token && !tokenData.scanned_type);
+
+        if (isExplicitTokenScan && tokenData.token) {
           const st = (tokenData.token.status || '').toLowerCase();
           if (st === 'redeemed' || st === 'claimed' || st === 'used') {
             showToast("Meal Already Claimed", `A meal was already distributed for ${tokenData.student?.name || tokenData.token.student_reg}.`, "warning");
@@ -704,6 +714,7 @@ export default function App() {
           return;
         } else if (tokenData.student) {
           setCurrentStudent(tokenData.student);
+          setExistingToken(tokenData.existing_token || null);
           setIsIssueModalOpen(true);
           playBeep("success");
           return;
@@ -716,11 +727,12 @@ export default function App() {
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
         if (tokenData.token || tokenData.student) {
-          if (tokenData.token) {
+          if (tokenData.scanned_type === "token_qr" && tokenData.token) {
             setCurrentTokenData(tokenData);
             setIsVerifyModalOpen(true);
-          } else {
+          } else if (tokenData.student) {
             setCurrentStudent(tokenData.student);
+            setExistingToken(tokenData.existing_token || null);
             setIsIssueModalOpen(true);
           }
           playBeep("success");
@@ -733,6 +745,7 @@ export default function App() {
       if (studentRes.ok) {
         const studentData = await studentRes.json();
         setCurrentStudent(studentData);
+        setExistingToken(null);
         setIsIssueModalOpen(true);
         playBeep("success");
         return;
@@ -740,9 +753,10 @@ export default function App() {
 
       showToast("No Record Found", `No student or token matching '${displayLabel}' was found.`, "error");
       playBeep("error");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Scan verification error:", err);
-      showToast("Scan Error", `Could not reach the server. Check your connection and try again.`, "error");
+      const errMsg = err?.message || String(err);
+      showToast("Scan Error", errMsg.includes("Failed to fetch") ? "Could not reach the server. Check your connection and try again." : `Scan Error: ${errMsg}`, "error");
       playBeep("error");
     }
   };
@@ -788,7 +802,7 @@ export default function App() {
     playBeep("warning");
   };
 
-  // Workflow B Modal Action: Approve Token
+  // Workflow B Modal Action: Redeem Token at Canteen Counter
   const handleApproveVerify = async () => {
     if (!currentTokenData) return;
 
@@ -797,7 +811,7 @@ export default function App() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: "approved",
+          status: "redeemed",
           staff_id: session?.staffId
         })
       });
@@ -806,23 +820,23 @@ export default function App() {
         await fetchTokens(); // refresh logs
         setIsVerifyModalOpen(false);
         setCurrentTokenData(null);
-        showToast("Access Approved", "Meal distributed. Student's breakfast/lunch access has been approved.", "success");
+        showToast("Meal Distributed", "Meal successfully distributed and logged for student.", "success");
         playBeep("success");
       } else {
         throw new Error("Server error");
       }
     } catch (e) {
-      console.warn("Approve API error, simulating approve flow", e);
+      console.warn("Redeem API error, simulating redeem flow", e);
       setTokens(prev =>
         prev.map(t =>
           t.token_id === currentTokenData.token.token_id
-            ? { ...t, status: "approved", processed_by: session?.staffId || "STAFF101" }
+            ? { ...t, status: "redeemed", processed_by: session?.staffId || "CANTEEN01" }
             : t
         )
       );
       setIsVerifyModalOpen(false);
       setCurrentTokenData(null);
-      showToast("Access Approved (Simulation)", "Meal distributed. Student's breakfast/lunch access has been approved.", "success");
+      showToast("Meal Distributed (Simulation)", "Meal successfully distributed and logged for student.", "success");
       playBeep("success");
     }
   };
@@ -1868,7 +1882,7 @@ export default function App() {
                                   {t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
                                 </td>
                                 <td className="py-3.5 px-6 text-slate-400 font-mono text-[11px]">
-                                  {stLower === 'redeemed' && t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
+                                  {stLower === 'redeemed' ? (t.redeemed_at ? new Date(t.redeemed_at).toLocaleString() : (t.created_at ? new Date(t.created_at).toLocaleString() : '-')) : '-'}
                                 </td>
                               </tr>
                             );
@@ -2136,8 +2150,11 @@ export default function App() {
         onClose={() => {
           setIsIssueModalOpen(false);
           setCurrentStudent(null);
+          setExistingToken(null);
         }}
         student={currentStudent}
+        existingToken={existingToken}
+        tokens={tokens}
         onConfirmIssue={handleConfirmIssue}
         onRejectIssue={handleRejectIssue}
       />

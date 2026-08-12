@@ -1,4 +1,4 @@
-import os, uuid, json, datetime, io, csv, math, time, hmac, hashlib, base64, logging, secrets, re
+import os, uuid, json, datetime, io, csv, math, time, hmac, hashlib, base64, logging, secrets, re, threading
 from urllib.parse import quote_plus
 from flask import Flask, request, jsonify, send_from_directory, send_file, Blueprint, current_app
 from flask_cors import CORS
@@ -128,13 +128,13 @@ def _get_mysql_connection():
     raise pymysql.err.OperationalError(2003, f"Can't connect to MySQL server on {target_host}")
 
 def _ensure_student_meals_columns(cur):
-    """Ensures required columns exist in student_meals table for media ingestion & student migration."""
+    """Ensures required columns & tables exist for student meals, archive, & migration."""
     student_meals_cols = [
         ('username', 'VARCHAR(50) NULL'),
         ('email', 'VARCHAR(100) NULL'),
         ('password_hash', 'VARCHAR(255) NULL'),
         ('degree_year', 'VARCHAR(50) NULL'),
-        ('student_category', "VARCHAR(20) DEFAULT 'Regular'"),
+        ('previous_degree_year', 'VARCHAR(50) NULL'),
         ('mobile_no', 'VARCHAR(50) NULL'),
         ('qr_secret', 'VARCHAR(64) NULL'),
         ('image_url', 'VARCHAR(512) NULL'),
@@ -148,6 +148,33 @@ def _ensure_student_meals_columns(cur):
             cur.execute(f"ALTER TABLE student_meals ADD COLUMN {col} {col_def}")
         except Exception:
             pass
+
+    # Ensure graduated_students archive table exists
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS `graduated_students` (
+              `student_id` VARCHAR(50) NOT NULL,
+              `username` VARCHAR(50) NOT NULL,
+              `email` VARCHAR(100) NULL,
+              `password_hash` VARCHAR(255) NULL,
+              `name` VARCHAR(100) NOT NULL,
+              `grade_section` VARCHAR(100) NOT NULL,
+              `degree_year` VARCHAR(50) NOT NULL DEFAULT 'Graduated',
+              `previous_degree_year` VARCHAR(50) NULL,
+              `graduation_year` INT NOT NULL,
+              `graduated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              `forenoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+              `afternoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+              `qr_secret` VARCHAR(64) NULL,
+              `image_url` VARCHAR(512) NULL DEFAULT NULL,
+              `image_path` VARCHAR(512) NULL DEFAULT NULL,
+              PRIMARY KEY (`student_id`),
+              INDEX `idx_grad_year` (`graduation_year`),
+              INDEX `idx_grad_time` (`graduated_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
+    except Exception as _ge:
+        logger.warning(f"Notice ensuring graduated_students table: {_ge}")
 
     # Drop unneeded academic_year, income_proof_path and signature_path columns from student_meals if present
     for old_col in ('academic_year', 'income_proof_path', 'signature_path'):
@@ -165,8 +192,7 @@ def _ensure_meal_registrations_columns(cur):
     """Ensures required columns exist in meal_registrations table."""
     cols = [
         ('date_of_birth', 'VARCHAR(50) NULL AFTER dob_age'),
-        ('age', 'INT NULL AFTER date_of_birth'),
-        ('student_category', "VARCHAR(20) DEFAULT 'Regular'")
+        ('age', 'INT NULL AFTER date_of_birth')
     ]
     for col, col_def in cols:
         try:
@@ -281,14 +307,18 @@ def _ensure_tables(conn):
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 meal_type ENUM('forenoon','afternoon') NOT NULL,
                 day_of_week TINYINT NULL, start_time TIME NOT NULL, end_time TIME NOT NULL,
-                expiry_minutes INT DEFAULT 15, is_active TINYINT(1) DEFAULT 1,
+                expiry_minutes INT DEFAULT 30, is_active TINYINT(1) DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         try:
             cur.execute("SHOW COLUMNS FROM meal_windows LIKE 'grace_minutes'")
             if cur.fetchone():
-                cur.execute("ALTER TABLE meal_windows CHANGE COLUMN grace_minutes expiry_minutes INT DEFAULT 15")
+                cur.execute("ALTER TABLE meal_windows CHANGE COLUMN grace_minutes expiry_minutes INT DEFAULT 30")
+        except Exception:
+            pass
+        try:
+            cur.execute("UPDATE meal_windows SET expiry_minutes = 30 WHERE expiry_minutes = 15")
         except Exception:
             pass
         cur.execute("""
@@ -328,27 +358,6 @@ def _ensure_tables(conn):
                     'duplicate_meal','not_eligible','generation_disabled','invalid_signature','not_found') NOT NULL,
                 detail TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_scanner (scanner_id), INDEX idx_created (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS guest_tokens (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                token_uid VARCHAR(50) UNIQUE NOT NULL,
-                guest_name VARCHAR(100) NOT NULL,
-                guest_role VARCHAR(100) NULL,
-                phone_no VARCHAR(20) NULL,
-                email VARCHAR(100) NULL,
-                pass_count INT DEFAULT 1,
-                claimed_count INT DEFAULT 0,
-                valid_date DATE NOT NULL,
-                status ENUM('active','claimed','rejected','expired') DEFAULT 'active',
-                issued_by VARCHAR(50) NULL,
-                claimed_by VARCHAR(50) NULL,
-                claimed_at TIMESTAMP NULL,
-                note TEXT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_guest_token_uid (token_uid),
-                INDEX idx_guest_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
@@ -473,32 +482,30 @@ def _sync_approved_registrations_to_student_meals(conn):
                 qr_sec = _gen_qr_secret(sid)
                 img_url = r.get('student_image_path') or r.get('student_photo_url') or f"https://ui-avatars.com/api/?name={quote_plus(display_name)}&background=random"
                 img_path = r.get('student_image_path') or r.get('student_photo_url') or ''
-                stu_cat = r.get('student_category') or 'Regular'
                 cur.execute("""
                     INSERT INTO student_meals (
                         student_id, username, email, password_hash, name, grade_section,
-                        degree_year, student_category, mobile_no,
+                        degree_year, mobile_no,
                         forenoon_meal, afternoon_meal, qr_secret, image_url, image_path,
                         student_image_path
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     ) ON DUPLICATE KEY UPDATE
                         username=VALUES(username),
                         email=VALUES(email),
                         name=VALUES(name),
                         grade_section=VALUES(grade_section),
-                        degree_year=VALUES(degree_year),
-                        student_category=VALUES(student_category),
+                        degree_year=IF(student_meals.degree_year IS NULL OR student_meals.degree_year = '' OR student_meals.degree_year = 'Enrolled', VALUES(degree_year), student_meals.degree_year),
                         mobile_no=VALUES(mobile_no),
-                        forenoon_meal=VALUES(forenoon_meal),
-                        afternoon_meal=VALUES(afternoon_meal),
-                        qr_secret=VALUES(qr_secret),
-                        image_url=VALUES(image_url),
-                        image_path=VALUES(image_path),
-                        student_image_path=VALUES(student_image_path)
+                        forenoon_meal=student_meals.forenoon_meal,
+                        afternoon_meal=student_meals.afternoon_meal,
+                        qr_secret=IF(student_meals.qr_secret IS NULL OR student_meals.qr_secret = '', VALUES(qr_secret), student_meals.qr_secret),
+                        image_url=IF(student_meals.image_url IS NULL OR student_meals.image_url = '', VALUES(image_url), student_meals.image_url),
+                        image_path=IF(student_meals.image_path IS NULL OR student_meals.image_path = '', VALUES(image_path), student_meals.image_path),
+                        student_image_path=IF(student_meals.student_image_path IS NULL OR student_meals.student_image_path = '', VALUES(student_image_path), student_meals.student_image_path)
                 """, (
                     sid, username, student_email, pw_hash, display_name, grade_sec,
-                    deg_year, stu_cat, mobile_num,
+                    deg_year, mobile_num,
                     fn_meal, an_meal, qr_sec, img_url, img_path,
                     img_path
                 ))
@@ -584,7 +591,7 @@ def _ensure_app_state(conn):
         cur.execute("SELECT id,username,email,role,display_name FROM users")
         user_rows = cur.fetchall()
 
-        cur.execute("SELECT student_id,username,name,grade_section,forenoon_meal,afternoon_meal,last_served_date,image_url FROM student_meals")
+        cur.execute("SELECT student_id,username,name,grade_section,forenoon_meal,afternoon_meal,last_served_date,image_url FROM student_meals ORDER BY student_id ASC")
         student_rows = cur.fetchall()
         for s in student_rows:
             s['forenoon_meal'] = bool(s['forenoon_meal'])
@@ -1347,8 +1354,12 @@ def update_meal_timings():
 def get_students():
     conn = get_db()
     try:
+        try:
+            _check_and_run_automated_year_migration(conn)
+        except Exception as _me:
+            logger.warning("Migration check in get_students: %s", _me)
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM student_meals ORDER BY name")
+            cur.execute("SELECT * FROM student_meals ORDER BY student_id ASC")
             rows = cur.fetchall()
             for r in rows:
                 r['degree_year'] = _format_degree_year(r.get('degree_year'))
@@ -1443,8 +1454,221 @@ def _format_time_str(val, default="07:30"):
             pass
     return default
 
-def _get_meal_config(conn):
+def _add_one_year(dt):
+    try:
+        return dt.replace(year=dt.year + 1)
+    except ValueError:
+        # Handling Feb 29 leap year to non-leap year (Feb 28)
+        return dt.replace(year=dt.year + 1, day=28)
+
+def _execute_year_migration(conn):
+    """Batch migrates student academic years:
+       1. Active 3rd Year students move to `graduated_students` archive table.
+       2. Active 2nd Year -> 3rd Year (saving previous_degree_year = '2nd Year').
+       3. Active 1st Year -> 2nd Year (saving previous_degree_year = '1st Year').
+    """
+    current_year = datetime.datetime.now().year
     with conn.cursor() as cur:
+        # Step 1: Move 3rd Year students to graduated_students archive
+        cur.execute(f"""
+            INSERT INTO graduated_students (
+                student_id, username, email, password_hash, name, grade_section,
+                degree_year, previous_degree_year, graduation_year, forenoon_meal,
+                afternoon_meal, qr_secret, image_url, image_path
+            )
+            SELECT 
+                student_id, username, email, password_hash, name, grade_section,
+                'Graduated', degree_year, {current_year}, 0, 0, qr_secret, image_url, image_path
+            FROM student_meals
+            WHERE degree_year LIKE '3rd%' OR degree_year = '3' OR degree_year = 'Graduated'
+            ON DUPLICATE KEY UPDATE 
+                degree_year = 'Graduated', graduation_year = VALUES(graduation_year), graduated_at = CURRENT_TIMESTAMP;
+        """)
+
+        # Delete archived graduates from active student_meals roster
+        cur.execute("DELETE FROM student_meals WHERE degree_year LIKE '3rd%' OR degree_year = '3' OR degree_year = 'Graduated';")
+
+        # Step 2: 2nd Year -> 3rd Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET previous_degree_year = degree_year, degree_year = '3rd Year' 
+            WHERE degree_year LIKE '2nd%' OR degree_year = '2';
+        """)
+
+        # Step 3: 1st Year -> 2nd Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET previous_degree_year = degree_year, degree_year = '2nd Year' 
+            WHERE degree_year LIKE '1st%' OR degree_year = '1';
+        """)
+
+        conn.commit()
+
+def _execute_revoke_year_migration(conn):
+    """Reverses student academic year progression:
+       1. Active 2nd Year -> 1st Year (or previous_degree_year)
+       2. Active 3rd Year -> 2nd Year (or previous_degree_year)
+       3. Restores latest batch from `graduated_students` archive table back to active `student_meals` as 3rd Year.
+       4. Rolls back year_migration_date by -1 year in app_state.
+    """
+    with conn.cursor() as cur:
+        # Step 1: Revert 2nd Year -> 1st Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET degree_year = IF(previous_degree_year IS NOT NULL AND previous_degree_year != '', previous_degree_year, '1st Year')
+            WHERE degree_year LIKE '2nd%' OR degree_year = '2';
+        """)
+
+        # Step 2: Revert 3rd Year -> 2nd Year
+        cur.execute("""
+            UPDATE student_meals 
+            SET degree_year = IF(previous_degree_year IS NOT NULL AND previous_degree_year != '', previous_degree_year, '2nd Year')
+            WHERE degree_year LIKE '3rd%' OR degree_year = '3';
+        """)
+
+        # Step 3: Find most recent graduation_year batch in graduated_students
+        cur.execute("SELECT MAX(graduation_year) as max_year FROM graduated_students")
+        row = cur.fetchone()
+        max_year = row['max_year'] if row and row.get('max_year') else None
+
+        if max_year is not None:
+            cur.execute(f"""
+                INSERT INTO student_meals (
+                    student_id, username, email, password_hash, name, grade_section,
+                    degree_year, previous_degree_year, forenoon_meal, afternoon_meal,
+                    qr_secret, image_url, image_path
+                )
+                SELECT 
+                    student_id, username, email, password_hash, name, grade_section,
+                    IF(previous_degree_year IS NOT NULL AND previous_degree_year != '' AND previous_degree_year != 'Graduated', previous_degree_year, '3rd Year'),
+                    'Graduated', 1, 1, qr_secret, image_url, image_path
+                FROM graduated_students
+                WHERE graduation_year = {int(max_year)}
+                ON DUPLICATE KEY UPDATE 
+                    degree_year = VALUES(degree_year), forenoon_meal = 1, afternoon_meal = 1;
+            """)
+
+            cur.execute(f"DELETE FROM graduated_students WHERE graduation_year = {int(max_year)}")
+
+        # Rollback year_migration_date by -1 year in app_state if set
+        try:
+            cur.execute("SELECT data FROM app_state WHERE id = 1 FOR UPDATE")
+            state_row = cur.fetchone()
+            if state_row and state_row.get('data'):
+                state = json.loads(state_row['data']) if isinstance(state_row['data'], str) else state_row['data']
+                meal_cfg = state.get('meal_config')
+                if meal_cfg and isinstance(meal_cfg, dict):
+                    migration_str = meal_cfg.get('year_migration_date')
+                    if migration_str and str(migration_str).strip():
+                        migration_str = str(migration_str).strip()
+                        dt_obj = None
+                        formats = (
+                            "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                            "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+                            "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
+                            "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+                            "%Y/%m/%YT%H:%M:%S", "%Y/%m/%YT%H:%M", "%Y/%m/%Y %H:%M:%S", "%Y/%m/%Y %H:%M"
+                        )
+                        for fmt in formats:
+                            try:
+                                dt_obj = datetime.datetime.strptime(migration_str, fmt)
+                                break
+                            except ValueError:
+                                continue
+                        if dt_obj:
+                            try:
+                                rolled_back_dt = dt_obj.replace(year=dt_obj.year - 1)
+                            except ValueError:
+                                rolled_back_dt = dt_obj.replace(year=dt_obj.year - 1, day=28)
+                            new_str = rolled_back_dt.strftime("%Y-%m-%dT%H:%M")
+                            meal_cfg['year_migration_date'] = new_str
+                            meal_cfg['skip_migration_date'] = new_str
+                            state['meal_config'] = meal_cfg
+                            cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
+        except Exception as err:
+            logger.warning("Notice rolling back year_migration_date in revoke: %s", err)
+
+        conn.commit()
+
+def _check_and_run_automated_year_migration(conn):
+    """Checks if year_migration_date in app_state is set and <= NOW().
+       If so, executes year migration and advances scheduled datetime by +1 year until > NOW()."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM app_state WHERE id = 1 FOR UPDATE")
+            row = cur.fetchone()
+            if not row or not row.get('data'):
+                return
+            state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+            meal_cfg = state.get('meal_config')
+            if not meal_cfg or not isinstance(meal_cfg, dict):
+                return
+            
+            migration_str = meal_cfg.get('year_migration_date')
+            if not migration_str or not str(migration_str).strip():
+                return
+            
+            migration_str = str(migration_str).strip()
+            skip_str = meal_cfg.get('skip_migration_date')
+            if skip_str and str(skip_str).strip() == migration_str:
+                return
+            dt_obj = None
+            formats = (
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+                "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
+                "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+                "%Y/%m/%YT%H:%M:%S", "%Y/%m/%YT%H:%M", "%Y/%m/%Y %H:%M:%S", "%Y/%m/%Y %H:%M"
+            )
+            for fmt in formats:
+                try:
+                    dt_obj = datetime.datetime.strptime(migration_str, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if not dt_obj:
+                logger.warning(f"Could not parse scheduled migration date: {migration_str}")
+                return
+
+            now = datetime.datetime.now()
+            if now >= dt_obj:
+                logger.info(f"Automated year migration triggered for scheduled date {migration_str} (current time {now})")
+                # 1. Execute year migration
+                _execute_year_migration(conn)
+                
+                # 2. Advance next migration date by +1 year until it is strictly in the future
+                next_dt = dt_obj
+                while next_dt <= now:
+                    next_dt = _add_one_year(next_dt)
+                
+                new_migration_str = next_dt.strftime("%Y-%m-%dT%H:%M")
+                meal_cfg['year_migration_date'] = new_migration_str
+                meal_cfg.pop('skip_migration_date', None)
+                state['meal_config'] = meal_cfg
+                
+                cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
+                conn.commit()
+                _log_audit('SYSTEM', 'AUTOMATED_YEAR_MIGRATION', 'student_meals', f"Automated year migration executed. Next migration set to {new_migration_str}")
+    except Exception as e:
+        logger.error("Error in _check_and_run_automated_year_migration: %s", e)
+
+def _get_meal_config(conn):
+    try:
+        _check_and_run_automated_year_migration(conn)
+    except Exception as e:
+        logger.error("Error running year migration check in _get_meal_config: %s", e)
+
+    year_migration_date = ""
+    with conn.cursor() as cur:
+        cur.execute("SELECT data FROM app_state WHERE id = 1")
+        row = cur.fetchone()
+        if row and row.get('data'):
+            state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+            cfg_state = state.get('meal_config') or state.get('meal_timings')
+            if cfg_state and isinstance(cfg_state, dict):
+                year_migration_date = str(cfg_state.get('year_migration_date') or '').strip()
+
         # First query meal_windows SQL table if configured
         try:
             cur.execute("""
@@ -1461,7 +1685,9 @@ def _get_meal_config(conn):
                     def_end = "10:00" if mt == 'forenoon' else "19:30"
                     st = _format_time_str(r['start_t'], def_start)
                     et = _format_time_str(r['end_t'], def_end)
-                    exp = int(r['expiry_m']) if r.get('expiry_m') is not None else 15
+                    exp = int(r['expiry_m']) if r.get('expiry_m') is not None else 30
+                    if exp == 15:
+                        exp = 30
                     res[mt] = {"start": st, "end": et, "expiry": exp}
                 
                 cur.execute("SELECT DISTINCT day_of_week FROM meal_windows WHERE is_active = 1")
@@ -1469,16 +1695,15 @@ def _get_meal_config(conn):
                 res['days'] = [d['day_of_week'] for d in day_rows if d.get('day_of_week') is not None]
                 if 'forenoon' in res or 'afternoon' in res:
                     if 'forenoon' not in res:
-                        res['forenoon'] = {"start": "07:30", "end": "10:00", "expiry": 15}
+                        res['forenoon'] = {"start": "07:30", "end": "10:00", "expiry": 30}
                     if 'afternoon' not in res:
-                        res['afternoon'] = {"start": "11:30", "end": "19:30", "expiry": 15}
+                        res['afternoon'] = {"start": "11:30", "end": "19:30", "expiry": 30}
+                    res['year_migration_date'] = year_migration_date
                     return res
         except Exception:
             pass
 
         # Fallback to app_state JSON
-        cur.execute("SELECT data FROM app_state WHERE id = 1")
-        row = cur.fetchone()
         if row and row.get('data'):
             state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
             cfg = state.get('meal_config') or state.get('meal_timings')
@@ -1486,17 +1711,25 @@ def _get_meal_config(conn):
                 if 'forenoon' in cfg:
                     cfg['forenoon']['start'] = _format_time_str(cfg['forenoon'].get('start'), "07:30")
                     cfg['forenoon']['end'] = _format_time_str(cfg['forenoon'].get('end'), "10:00")
+                    if cfg['forenoon'].get('expiry') in (15, None):
+                        cfg['forenoon']['expiry'] = 30
                 if 'afternoon' in cfg:
                     cfg['afternoon']['start'] = _format_time_str(cfg['afternoon'].get('start'), "11:30")
                     cfg['afternoon']['end'] = _format_time_str(cfg['afternoon'].get('end'), "19:30")
+                    if cfg['afternoon'].get('expiry') in (15, None):
+                        cfg['afternoon']['expiry'] = 30
+                cfg['year_migration_date'] = year_migration_date
                 return cfg
-        return _default_meal_config()
+        def_cfg = _default_meal_config()
+        def_cfg['year_migration_date'] = year_migration_date
+        return def_cfg
 
 def _default_meal_config():
     return {
         "days": [0, 1, 2, 3, 4, 5, 6],
-        "forenoon": {"start": "07:30", "end": "10:00", "expiry": 15},
-        "afternoon": {"start": "12:00", "end": "14:30", "expiry": 15}
+        "forenoon": {"start": "07:30", "end": "10:00", "expiry": 30},
+        "afternoon": {"start": "12:00", "end": "14:30", "expiry": 30},
+        "year_migration_date": ""
     }
 
 def _sync_meal_windows(conn, cfg):
@@ -1542,11 +1775,30 @@ def update_meal_config():
         
         fn_exp = int(data['forenoon']['expiry'])
         an_exp = int(data['afternoon']['expiry'])
+        raw_mig_date = str(data.get('year_migration_date') or '').strip()
+        normalized_mig_date = raw_mig_date
+        if raw_mig_date:
+            dt_parse = None
+            formats = (
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+                "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
+                "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M"
+            )
+            for fmt in formats:
+                try:
+                    dt_parse = datetime.datetime.strptime(raw_mig_date, fmt)
+                    break
+                except ValueError:
+                    continue
+            if dt_parse:
+                normalized_mig_date = dt_parse.strftime("%Y-%m-%dT%H:%M")
 
         cfg = {
             "days": days,
             "forenoon": {"start": str(data['forenoon']['start']).strip(), "end": str(data['forenoon']['end']).strip(), "expiry": fn_exp},
-            "afternoon": {"start": str(data['afternoon']['start']).strip(), "end": str(data['afternoon']['end']).strip(), "expiry": an_exp}
+            "afternoon": {"start": str(data['afternoon']['start']).strip(), "end": str(data['afternoon']['end']).strip(), "expiry": an_exp},
+            "year_migration_date": normalized_mig_date
         }
         conn = get_db()
         try:
@@ -1555,9 +1807,12 @@ def update_meal_config():
                 row = cur.fetchone()
                 conn.autocommit(False)
                 if row:
-                    state = json.loads(row['data'])
+                    state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
                 else:
                     state = {}
+                # Clear any skip_migration_date so newly set date triggers properly
+                if isinstance(state.get('meal_config'), dict):
+                    state['meal_config'].pop('skip_migration_date', None)
                 state['meal_config'] = cfg
                 if row:
                     cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
@@ -1565,17 +1820,44 @@ def update_meal_config():
                     cur.execute("INSERT INTO app_state (id, data) VALUES (1, %s)", (json.dumps(state, ensure_ascii=False),))
                 _sync_meal_windows(conn, cfg)
                 conn.commit()
+            
+            # Immediately run migration check if the date was set in the past or is due
+            _check_and_run_automated_year_migration(conn)
+            final_cfg = _get_meal_config(conn)
         except Exception as sql_err:
             conn.rollback()
             logger.error("Error updating meal_config: %s", sql_err)
             return jsonify({"error": f"Failed to save meal windows: {str(sql_err)}"}), 400
         finally:
             conn.close()
-        _log_audit(_get_auditor_username(), 'UPDATE_CONFIG', 'meal_config', f"Updated meal config: {len(days)} days, forenoon {cfg['forenoon']['start']}-{cfg['forenoon']['end']}, afternoon {cfg['afternoon']['start']}-{cfg['afternoon']['end']}")
-        return jsonify(cfg)
+        _log_audit(_get_auditor_username(), 'UPDATE_CONFIG', 'meal_config', f"Updated meal config: {len(days)} days, forenoon {cfg['forenoon']['start']}-{cfg['forenoon']['end']}, afternoon {cfg['afternoon']['start']}-{cfg['afternoon']['end']}, year_migration_date {normalized_mig_date}")
+        return jsonify(final_cfg)
     except Exception as e:
         logger.error("Error in update_meal_config: %s", e)
         return jsonify({"error": str(e) if str(e) else sani(e)}), 400
+
+def _start_migration_scheduler():
+    def _scheduler_loop():
+        time.sleep(2)
+        logger.info("YearMigrationSchedulerThread daemon started (5s poll interval)")
+        while True:
+            try:
+                conn = get_db()
+                try:
+                    _check_and_run_automated_year_migration(conn)
+                finally:
+                    conn.close()
+            except Exception as e:
+                logger.error("Error in scheduler loop: %s", e)
+            time.sleep(5)
+    
+    t = threading.Thread(target=_scheduler_loop, daemon=True, name="YearMigrationSchedulerThread")
+    t.start()
+
+try:
+    _start_migration_scheduler()
+except Exception as _e:
+    logger.warning("Scheduler startup failed: %s", _e)
 
 # Keep the /active endpoint for blueprints
 @admin_bp.route('/meal-windows/active', methods=['GET'])
@@ -2006,21 +2288,7 @@ def get_all_students_roster():
         conn = get_db()
         try:
             with conn.cursor() as cur:
-                try:
-                    cur.execute("""
-                        UPDATE student_meals sm
-                        INNER JOIN meal_registrations mr 
-                           ON LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.dept_number))
-                           OR LOWER(TRIM(sm.student_id)) = LOWER(TRIM(mr.app_no))
-                        SET sm.degree_year = mr.degree_year
-                        WHERE (sm.degree_year IS NULL OR sm.degree_year = '' OR sm.degree_year = 'Enrolled')
-                          AND (mr.degree_year IS NOT NULL AND mr.degree_year != '');
-                    """)
-                    conn.commit()
-                except Exception as sync_err:
-                    print("Warning syncing degree_year:", sync_err)
-
-                cur.execute("SELECT * FROM student_meals ORDER BY name ASC")
+                cur.execute("SELECT * FROM student_meals ORDER BY student_id ASC")
                 rows = cur.fetchall()
                 for r in rows:
                     r['degree_year'] = _format_degree_year(r.get('degree_year'))
@@ -2040,25 +2308,52 @@ def promote_academic_year():
     try:
         conn = get_db()
         try:
-            with conn.cursor() as cur:
-                # 3rd Year -> Graduated (disable active meal eligibility for graduated students)
-                cur.execute("""
-                    UPDATE student_meals 
-                    SET degree_year = 'Graduated', forenoon_meal = 0, afternoon_meal = 0 
-                    WHERE degree_year LIKE '3rd%' OR degree_year = '3';
-                """)
-                # 2nd Year -> 3rd Year
-                cur.execute("UPDATE student_meals SET degree_year = '3rd Year' WHERE degree_year LIKE '2nd%' OR degree_year = '2';")
-                
-                # 1st Year -> 2nd Year
-                cur.execute("UPDATE student_meals SET degree_year = '2nd Year' WHERE degree_year LIKE '1st%' OR degree_year = '1';")
-                
-                conn.commit()
+            _execute_year_migration(conn)
         finally:
             conn.close()
+        _log_audit(_get_auditor_username(), 'MANUAL_YEAR_MIGRATION', 'student_meals', "Manual student academic year progression completed.")
         return jsonify({"message": "Student academic year progression completed successfully."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@admin_bp.route('/students/revoke-academic-year', methods=['POST'])
+@admin_bp.route('/api/students/revoke-academic-year', methods=['POST'])
+@authenticate
+@require_role('admin')
+def revoke_academic_year():
+    """Reverses student academic year progression by one step:
+       2nd Year -> 1st Year, 3rd Year -> 2nd Year, Graduated -> 3rd Year.
+    """
+    try:
+        conn = get_db()
+        try:
+            _execute_revoke_year_migration(conn)
+        finally:
+            conn.close()
+        _log_audit(_get_auditor_username(), 'REVOKE_YEAR_MIGRATION', 'student_meals', "Revoked student academic year progression by 1 step.")
+        return jsonify({"message": "Student academic year promotion revoked by 1 step successfully."})
+    except Exception as e:
+        logger.error("Error in revoke_academic_year: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.route('/students/graduated', methods=['GET'])
+@admin_bp.route('/api/students/graduated', methods=['GET'])
+@authenticate
+@require_role('admin')
+def get_graduated_students():
+    """Returns list of archived graduated students."""
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM graduated_students ORDER BY graduation_year DESC, name ASC")
+                rows = cur.fetchall()
+                return jsonify({"students": serialize_row(rows), "count": len(rows)})
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error("Error fetching graduated_students: %s", e)
+        return jsonify({"students": [], "count": 0, "error": str(e)})
 
 def _normalize_registration_row(r):
     if not r:
@@ -2240,7 +2535,7 @@ def act_on_registration(registration_id):
                                 email=VALUES(email),
                                 name=VALUES(name),
                                 grade_section=VALUES(grade_section),
-                                degree_year=VALUES(degree_year),
+                                degree_year=IF(student_meals.degree_year IS NULL OR student_meals.degree_year = '' OR student_meals.degree_year = 'Enrolled', VALUES(degree_year), student_meals.degree_year),
                                 mobile_no=VALUES(mobile_no),
                                 forenoon_meal=VALUES(forenoon_meal),
                                 afternoon_meal=VALUES(afternoon_meal),
@@ -3360,7 +3655,7 @@ def comm_students_with_email():
         if q:
             query += " AND (s.name LIKE %s OR s.student_id LIKE %s OR s.email LIKE %s)"
             params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
-        query += " ORDER BY s.name"
+        query += " ORDER BY s.student_id ASC"
         with conn.cursor() as cur:
             cur.execute(query, params)
             students = cur.fetchall()

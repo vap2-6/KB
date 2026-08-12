@@ -230,7 +230,6 @@ def push_registration_to_central_db(row):
                 ('student_photo_url', 'VARCHAR(512) NULL'),
                 ('applicant_signature_url', 'VARCHAR(512) NULL'),
                 ('income_proof_url', 'VARCHAR(512) NULL'),
-                ('student_category', "VARCHAR(20) DEFAULT 'Regular'"),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE meal_registrations ADD COLUMN {col} {col_def}")
@@ -240,14 +239,14 @@ def push_registration_to_central_db(row):
             cur.execute("""
                 INSERT INTO meal_registrations (
                     registration_id, app_no, student_name, dob_age, date_of_birth, age, course, department,
-                    degree_year, student_category, dept_number, mobile_no, email, father_name, father_occupation,
+                    degree_year, dept_number, mobile_no, email, father_name, father_occupation,
                     forenoon_meal, afternoon_meal, annual_income, distance_km, permanent_address,
                     permanent_pin, local_address, local_pin, landline, employment_type, religion,
                     community, last_year_id, student_image_path, student_photo_url, signature_path,
                     applicant_signature_url, income_proof_path, income_proof_url, generated_pdf_url, status
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
@@ -255,7 +254,6 @@ def push_registration_to_central_db(row):
                 ) ON DUPLICATE KEY UPDATE
                     date_of_birth=VALUES(date_of_birth),
                     age=VALUES(age),
-                    student_category=VALUES(student_category),
                     student_image_path=VALUES(student_image_path),
                     student_photo_url=VALUES(student_photo_url),
                     signature_path=VALUES(signature_path),
@@ -266,7 +264,7 @@ def push_registration_to_central_db(row):
             """, (
                 row.get('registration_id'), row.get('app_no'), row.get('student_name'), row.get('dob_age'),
                 row.get('date_of_birth'), row.get('age'),
-                row.get('course'), row.get('department'), row.get('degree_year'), row.get('student_category', 'Regular'), row.get('dept_number'),
+                row.get('course'), row.get('department'), row.get('degree_year'), row.get('dept_number'),
                 row.get('mobile_no'), row.get('email'), row.get('father_name'), row.get('father_occupation'),
                 bool(row.get('forenoon_meal')), bool(row.get('afternoon_meal')), row.get('annual_income'),
                 row.get('distance_km'), row.get('permanent_address'), row.get('permanent_pin'),
@@ -667,8 +665,6 @@ def register_student():
         dob_age = data.get('dob_age')
         course = data.get('course')
         department = data.get('department')
-        raw_category = str(data.get('student_category') or data.get('category') or 'Regular').strip()
-        student_category = 'NCC' if raw_category.upper() in ['NCC', 'NCC CADET', 'NCC STUDENT'] else 'Regular'
         raw_year = (data.get('degree_year') or data.get('year') or '').strip()
         if not raw_year:
             return jsonify({"error": "Year of Degree (1st Year, 2nd Year, or 3rd Year) is required to submit application."}), 400
@@ -995,7 +991,6 @@ def register_student():
             "course": course,
             "department": department,
             "degree_year": degree_year,
-            "student_category": student_category,
             "dept_number": dept_number,
             "mobile_no": mobile_no,
             "email": email or "",

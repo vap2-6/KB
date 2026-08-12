@@ -139,7 +139,6 @@ def map_db_student_to_frontend(db_student):
         'name': db_student.get('name') or db_student.get('display_name') or db_student.get('username') or 'Unknown Student',
         'year': year,
         'department': dept,
-        'student_category': db_student.get('student_category') or 'Regular',
         'image_url': img,
         'forenoon_meal': bool(db_student.get('forenoon_meal', 1)),
         'afternoon_meal': bool(db_student.get('afternoon_meal', 1))
@@ -156,14 +155,12 @@ def map_db_token_to_frontend(db_token):
     
     # Map DB status to Frontend status ('active', 'redeemed', 'expired', 'rejected')
     status_db = str(db_token.get('status') or '').lower()
-    if db_token.get('redeemed_at') and status_db != 'rejected':
-        status_fe = 'redeemed'
+    if status_db in ['rejected']:
+        status_fe = 'rejected'
     elif status_db in ['expired']:
         status_fe = 'expired'
-    elif status_db in ['redeemed', 'claimed', 'used']:
+    elif status_db in ['redeemed', 'claimed', 'used'] or db_token.get('redeemed_at'):
         status_fe = 'redeemed'
-    elif status_db in ['rejected']:
-        status_fe = 'rejected'
     else:
         status_fe = 'active'
         
@@ -175,15 +172,6 @@ def map_db_token_to_frontend(db_token):
         created_at_str = str(created_at_val)
     else:
         created_at_str = datetime.now().isoformat()
-        
-    # Compute generated_at from token_issued_at or created_at
-    gen_at_val = db_token.get('token_issued_at') or db_token.get('created_at')
-    if isinstance(gen_at_val, datetime):
-        generated_at_str = gen_at_val.isoformat()
-    elif gen_at_val:
-        generated_at_str = str(gen_at_val)
-    else:
-        generated_at_str = created_at_str
 
     student_name = (
         db_token.get('student_name') or 
@@ -200,6 +188,9 @@ def map_db_token_to_frontend(db_token):
     else:
         expires_at_str = ''
 
+    red_val = db_token.get('redeemed_at')
+    redeemed_at_str = red_val.isoformat() if isinstance(red_val, datetime) else (str(red_val) if red_val else None)
+
     return {
         'student_reg': db_token.get('student_id'),
         'student_name': student_name,
@@ -208,11 +199,12 @@ def map_db_token_to_frontend(db_token):
         'meal_type': meal_fe,
         'status': status_fe,
         'created_at': created_at_str,
-        'generated_at': generated_at_str,
+        'generated_at': created_at_str,
+        'redeemed_at': redeemed_at_str,
         'expires_at': expires_at_str,
         'expiry_time': expires_at_str,
         'issued_by': db_token.get('scanned_by'),
-        'processed_by': db_token.get('approved_by') or db_token.get('redeemed_by')
+        'redeemed_by': db_token.get('redeemed_by') or db_token.get('approved_by')
     }
 
 @staff_bp.route('/students', methods=['GET'])
@@ -221,7 +213,7 @@ def get_students():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM student_meals")
+        cursor.execute("SELECT * FROM student_meals ORDER BY student_id ASC")
         db_students = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -280,70 +272,39 @@ def get_tokens():
 def _find_token_and_student(cursor, search_ids, decoded_token_uid=None, decoded_student_id=None):
     db_token = None
     db_student = None
+    existing_token = None
 
-    # Priority 1: Match by token_uid explicitly in meal_tokens or guest_tokens
-    token_uids_to_try = list(dict.fromkeys(filter(None, [decoded_token_uid] + search_ids)))
-    for tu in token_uids_to_try:
-        cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
-        db_token = cursor.fetchone()
-        if db_token:
-            break
+    is_explicit_token_qr = bool(decoded_token_uid) or any(str(x).upper().startswith('TOK-') for x in search_ids)
 
-        cursor.execute("SELECT * FROM guest_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
-        gt = cursor.fetchone()
-        if gt:
-            is_claimed = (gt.get('claimed_count') or 0) >= (gt.get('pass_count') or 1) or gt.get('status') == 'claimed'
-            status = 'claimed' if is_claimed else gt.get('status', 'active')
-            db_token = {
-                'id': gt['id'],
-                'token_uid': gt['token_uid'],
-                'student_id': f"GUEST-{gt['id']}",
-                'cached_student_name': gt['guest_name'],
-                'meal_type': f"{gt.get('pass_count', 1)} Pass ({gt.get('claimed_count', 0)}/{gt.get('pass_count', 1)} Claimed)",
-                'status': status,
-                'is_guest_token': True,
-                'pass_count': gt.get('pass_count', 1),
-                'claimed_count': gt.get('claimed_count', 0),
-                'valid_date': gt['valid_date'],
-                'created_at': gt['created_at']
-            }
-            db_student = {
-                'student_id': f"GUEST-{gt['id']}",
-                'name': gt['guest_name'],
-                'grade_section': gt.get('guest_role') or 'Official Guest Pass',
-                'forenoon_meal': 1,
-                'afternoon_meal': 1,
-                'image_url': None,
-                'image_path': None
-            }
-            return db_token, db_student
-
-    # Priority 2: Match student's active/valid token issued TODAY
-    if not db_token:
-        student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))
-        for sid in student_ids_to_try:
-            cursor.execute("""
-                SELECT * FROM meal_tokens
-                WHERE student_id = %s AND DATE(created_at) = CURDATE()
-                  AND status NOT IN ('expired', 'rejected')
-                ORDER BY created_at DESC LIMIT 1
-            """, (sid,))
+    if is_explicit_token_qr:
+        scanned_type = 'token_qr'
+        token_uids_to_try = list(dict.fromkeys(filter(None, [decoded_token_uid] + search_ids)))
+        for tu in token_uids_to_try:
+            cursor.execute("SELECT * FROM meal_tokens WHERE token_uid = %s ORDER BY created_at DESC LIMIT 1", (tu,))
             db_token = cursor.fetchone()
             if db_token:
                 break
-
-    # Fetch student meal profile
-    if db_token:
-        cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (db_token['student_id'],))
-        db_student = cursor.fetchone()
+        if db_token:
+            cursor.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s))", (db_token['student_id'],))
+            db_student = cursor.fetchone()
     else:
-        for sid in search_ids:
-            cursor.execute("SELECT * FROM student_meals WHERE student_id = %s", (sid,))
+        scanned_type = 'student_qr'
+        student_ids_to_try = list(dict.fromkeys(filter(None, [decoded_student_id] + search_ids)))
+        for sid in student_ids_to_try:
+            cursor.execute("SELECT * FROM student_meals WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) OR LOWER(TRIM(username)) = LOWER(TRIM(%s))", (sid, sid))
             db_student = cursor.fetchone()
             if db_student:
                 break
 
-    return db_token, db_student
+        if db_student:
+            cursor.execute("""
+                SELECT * FROM meal_tokens
+                WHERE LOWER(TRIM(student_id)) = LOWER(TRIM(%s)) AND DATE(created_at) = CURDATE()
+                ORDER BY created_at DESC LIMIT 1
+            """, (db_student['student_id'],))
+            existing_token = cursor.fetchone()
+
+    return db_token, db_student, existing_token, scanned_type
 
 @staff_bp.route('/tokens/<token_id>', methods=['GET'])
 @staff_bp.route('/api/tokens/<token_id>', methods=['GET'])
@@ -359,7 +320,7 @@ def verify_token(token_id):
             decoded_student_id = qr_data.get('_raw')
 
         search_ids = list(dict.fromkeys(filter(None, [decoded_token_uid, decoded_student_id, token_id])))
-        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        db_token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
@@ -527,10 +488,16 @@ def update_token(token_id):
         return jsonify({'error': 'Missing status field'}), 400
 
     status_fe_lower = str(status_fe).lower().strip()
-    if status_fe_lower in ['approved', 'redeemed', 'claimed', 'used', 'success', 'staff_verified']:
+    if status_fe_lower in ['rejected', 'declined', 'denied']:
+        status_db = 'rejected'
+    elif status_fe_lower in ['expired']:
+        status_db = 'expired'
+    elif status_fe_lower in ['approved', 'staff_verified']:
+        status_db = 'approved'
+    elif status_fe_lower in ['redeemed', 'claimed', 'used', 'success']:
         status_db = 'redeemed'
     else:
-        status_db = 'redeemed'
+        status_db = status_fe_lower
 
     # Decode QR payload if needed
     qr_data, _ = _decode_qr_payload(token_id)
@@ -542,59 +509,42 @@ def update_token(token_id):
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        token, _ = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         if not token:
             cursor.close()
             conn.close()
             return jsonify({'error': 'Token not found'}), 404
 
-        if token.get('is_guest_token'):
-            gt_uid = token['token_uid']
-            cursor.execute("SELECT * FROM guest_tokens WHERE token_uid = %s", (gt_uid,))
-            gt = cursor.fetchone()
-            if not gt:
-                cursor.close()
-                conn.close()
-                return jsonify({'error': 'Guest token not found'}), 404
-
-            current_claimed = gt.get('claimed_count') or 0
-            pass_cnt = gt.get('pass_count') or 1
-
-            if current_claimed >= pass_cnt or gt.get('status') == 'claimed':
-                cursor.close()
-                conn.close()
-                return jsonify({'error': f"Guest pass ({gt['token_uid']}) has already used all {pass_cnt} meal claims."}), 409
-
-            new_claimed = current_claimed + 1
-            new_status = 'claimed' if new_claimed >= pass_cnt else 'active'
-
-            cursor.execute("""
-                UPDATE guest_tokens
-                SET claimed_count = %s, status = %s, claimed_by = %s, claimed_at = CURRENT_TIMESTAMP
-                WHERE token_uid = %s
-            """, (new_claimed, new_status, staff_id, gt_uid))
-
-            cursor.execute("""
-                INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
-                VALUES (%s, 'canteen_staff', 'token_qr', %s, %s, %s, 'success', %s)
-            """, (staff_id, token_id, f"GUEST-{gt['id']}", gt_uid, f"Guest meal claimed ({new_claimed}/{pass_cnt})"))
-
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return jsonify({'message': f'Guest meal claimed successfully ({new_claimed}/{pass_cnt} used)'})
-
         if token.get('status') in ['redeemed', 'claimed', 'rejected'] and token.get('redeemed_at'):
             cursor.close()
             conn.close()
             return jsonify({'error': f"Token has already been {token.get('status')}"}), 409
 
-        cursor.execute("""
-            UPDATE meal_tokens
-            SET status = %s, approved_by = %s, redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = CURRENT_TIMESTAMP
-            WHERE token_uid = %s
-        """, (status_db, staff_id, staff_id, token['token_uid']))
+        if status_db == 'rejected':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'rejected', approved_by = %s, approved_at = CURRENT_TIMESTAMP
+                WHERE token_uid = %s
+            """, (staff_id, token['token_uid']))
+        elif status_db == 'expired':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'expired'
+                WHERE token_uid = %s
+            """, (token['token_uid'],))
+        elif status_db == 'approved':
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = 'approved', approved_by = %s, approved_at = CURRENT_TIMESTAMP
+                WHERE token_uid = %s
+            """, (staff_id, token['token_uid']))
+        else:
+            cursor.execute("""
+                UPDATE meal_tokens
+                SET status = %s, approved_by = COALESCE(approved_by, %s), redeemed_by = %s, redeemed_at = CURRENT_TIMESTAMP, approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP)
+                WHERE token_uid = %s
+            """, (status_db, staff_id, staff_id, token['token_uid']))
 
         # Add to scan audit log
         result_audit = 'success' if status_db == 'redeemed' else 'invalid_token'
@@ -644,214 +594,20 @@ def scan_qr():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        db_token, db_student = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
+        db_token, db_student, existing_token, scanned_type = _find_token_and_student(cursor, search_ids, decoded_token_uid, decoded_student_id)
 
         cursor.close()
         conn.close()
-
 
         if not db_token and not db_student:
-            return jsonify({'error': f'No student or token found for scanned code'}), 404
+            return jsonify({'error': 'No student or token found for scanned code'}), 404
 
         return jsonify({
+            'scanned_type': scanned_type,
             'token': map_db_token_to_frontend(db_token) if db_token else None,
+            'existing_token': map_db_token_to_frontend(existing_token) if existing_token else None,
             'student': map_db_student_to_frontend(db_student) if db_student else None
         })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# ── VOLUNTEER TOKEN PERMITTING & DISPATCH ENDPOINTS ─────────────────────────
-
-@staff_bp.route('/volunteer-tokens', methods=['POST'])
-@staff_bp.route('/api/staff/volunteer-tokens', methods=['POST'])
-@staff_bp.route('/api/volunteer/issue-token', methods=['POST'])
-def permit_volunteer_token():
-    """
-    Issue a meal pass token for a guest/volunteer in guest_tokens table with GUS- prefix.
-    """
-    data = request.json or {}
-    guest_name = (data.get('volunteer_name') or data.get('guest_name') or '').strip()
-    guest_role = (data.get('volunteer_role') or data.get('guest_role') or 'Guest / Event Staff').strip()
-    phone_no = (data.get('phone_no') or '').strip()
-    email = (data.get('email') or '').strip()
-    pass_count = int(data.get('pass_count') or (2 if str(data.get('meal_type')).lower() in ['both', 'full', 'all'] else 1))
-    send_via = (data.get('send_via') or 'both').strip().lower() # 'whatsapp', 'email', 'both'
-    staff_id = data.get('staff_id') or 'STAFF101'
-    valid_date = data.get('valid_date') or datetime.now().strftime('%Y-%m-%d')
-    note = data.get('note') or ''
-
-    if not guest_name:
-        return jsonify({'error': 'Guest name is required'}), 400
-
-    if send_via in ['whatsapp', 'both'] and not phone_no:
-        return jsonify({'error': 'Phone number is required for WhatsApp dispatch'}), 400
-
-    if send_via in ['email', 'both'] and not email:
-        return jsonify({'error': 'Email address is required for Email dispatch'}), 400
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        token_uid = f"GUS-{int(datetime.now().timestamp())}"
-
-        cursor.execute("""
-            INSERT INTO guest_tokens (token_uid, guest_name, guest_role, phone_no, email, pass_count, claimed_count, valid_date, status, issued_by, note)
-            VALUES (%s, %s, %s, %s, %s, %s, 0, %s, 'active', %s, %s)
-        """, (token_uid, guest_name, guest_role, phone_no or None, email or None, pass_count, valid_date, staff_id, note))
-        
-        # Log in audit
-        cursor.execute("""
-            INSERT INTO scan_audit_log (scanner_id, scanner_role, scan_type, payload, student_id, token_uid, result, detail)
-            VALUES (%s, 'approval_staff', 'token_qr', %s, %s, %s, 'success', %s)
-        """, (staff_id, token_uid, f"GUEST-{token_uid}", token_uid, f"Guest token ({pass_count} pass) issued for {guest_name} ({send_via})"))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        clean_phone = ''.join(filter(str.isdigit, phone_no))
-        if len(clean_phone) == 10:
-            clean_phone = '91' + clean_phone # India country code default fallback
-
-        pass_title = f"{pass_count} Meal Pass ('Both Breakfast & Lunch')" if pass_count >= 2 else "1 Meal Pass (Single Meal)"
-
-        wa_text = f"🎓 *RKMVC CANTEEN GUEST MEAL PASS*\n" \
-                  f"-----------------------------------------\n" \
-                  f"👤 *Guest:* {guest_name}\n" \
-                  f"🏷️ *Role/Purpose:* {guest_role}\n" \
-                  f"🎫 *Pass Token ID:* `{token_uid}`\n" \
-                  f"🍽️ *Pass Count:* {pass_title}\n" \
-                  f"📅 *Valid Date:* {valid_date}\n" \
-                  f"🏛️ *Issued By:* RKMVC Staff Portal\n" \
-                  f"{'📝 *Note:* ' + note if note else ''}\n\n" \
-                  f"*Instructions:* Show this Token ID (`{token_uid}`) at the canteen counter to claim your meal.\n\n" \
-                  f"Thank you! 🙏"
-
-        whatsapp_url = f"https://wa.me/{clean_phone}?text={quote_plus(wa_text)}" if clean_phone else None
-
-        email_sent = False
-        if send_via in ['email', 'both'] and email:
-            try:
-                from admin_backend.email_service import send_volunteer_pass_email
-                email_sent = send_volunteer_pass_email(
-                    to_email=email,
-                    volunteer_name=guest_name,
-                    token_uid=token_uid,
-                    meal_type=pass_title,
-                    valid_date=valid_date,
-                    volunteer_role=guest_role,
-                    issuer_name=staff_id
-                )
-            except Exception as mail_err:
-                print(f"Error calling send_volunteer_pass_email: {mail_err}", flush=True)
-                email_sent = True
-
-        return jsonify({
-            'message': 'Guest token permitted successfully',
-            'volunteer_name': guest_name,
-            'volunteer_role': guest_role,
-            'primary_token_uid': token_uid,
-            'token_uid': token_uid,
-            'pass_count': pass_count,
-            'whatsapp_url': whatsapp_url,
-            'whatsapp_text': wa_text,
-            'email_sent': email_sent,
-            'phone_no': phone_no,
-            'email': email,
-            'valid_date': valid_date
-        }), 201
-
-    except Exception as e:
-        print("Guest Permitting Error:", e, flush=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@staff_bp.route('/volunteer-tokens', methods=['GET'])
-@staff_bp.route('/api/staff/volunteer-tokens', methods=['GET'])
-def list_volunteer_tokens():
-    """
-    Fetch all guest meal tokens from guest_tokens table.
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        cursor.execute("""
-            SELECT * FROM guest_tokens ORDER BY id DESC LIMIT 200
-        """)
-
-        rows = cursor.fetchall() or []
-        cursor.close()
-        conn.close()
-
-        formatted_list = []
-        for r in rows:
-            created_dt = r['created_at']
-            p_cnt = r.get('pass_count') or 1
-            c_cnt = r.get('claimed_count') or 0
-            formatted_list.append({
-                'id': r['id'],
-                'token_id': r['token_uid'],
-                'student_id': f"GUEST-{r['id']}",
-                'volunteer_name': r['guest_name'],
-                'volunteer_role': r['guest_role'] or 'Guest',
-                'email': r['email'] or '',
-                'phone_no': r['phone_no'] or '',
-                'meal_type': f"{p_cnt} Pass ({c_cnt}/{p_cnt} Claimed)" if p_cnt > 1 else f"1 Pass ({c_cnt}/1 Claimed)",
-                'pass_count': p_cnt,
-                'claimed_count': c_cnt,
-                'status': r['status'],
-                'valid_date': str(r['valid_date']),
-                'created_at': created_dt.isoformat() if hasattr(created_dt, 'isoformat') else str(created_dt)
-            })
-
-        return jsonify(formatted_list), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@staff_bp.route('/volunteer-tokens/resend-email', methods=['POST'])
-@staff_bp.route('/api/staff/volunteer-tokens/resend-email', methods=['POST'])
-def resend_volunteer_email():
-    """
-    Re-send email pass for an existing guest token.
-    """
-    data = request.json or {}
-    token_id = data.get('token_id')
-    email = (data.get('email') or '').strip()
-
-    if not token_id or not email:
-        return jsonify({'error': 'Token ID and Email address are required'}), 400
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM guest_tokens WHERE token_uid = %s", (token_id,))
-        token = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not token:
-            return jsonify({'error': 'Guest token not found'}), 404
-
-        guest_name = token.get('guest_name') or 'Guest'
-        guest_role = token.get('guest_role') or 'Guest'
-        pass_count = token.get('pass_count') or 1
-        pass_title = f"{pass_count} Meal Pass" if pass_count > 1 else "1 Meal Pass"
-
-        from admin_backend.email_service import send_volunteer_pass_email
-        sent = send_volunteer_pass_email(
-            to_email=email,
-            volunteer_name=guest_name,
-            token_uid=token_id,
-            meal_type=pass_title,
-            valid_date=str(token.get('valid_date') or datetime.now().strftime('%Y-%m-%d')),
-            volunteer_role=guest_role
-        )
-
-        return jsonify({'message': 'Email re-sent successfully', 'email_sent': sent}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -859,4 +615,3 @@ def resend_volunteer_email():
 if __name__ == '__main__':
     pass
     # app.run(debug=True, host='0.0.0.0', port=5000)
-

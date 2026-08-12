@@ -59,7 +59,12 @@ export default function CommunicationsModule({ showToast }: CommunicationsModule
       if (filters.afternoon) params.afternoon = '1';
       if (filters.q) params.q = filters.q;
       const r = await api.get('/communications/students', { params });
-      setStudents(r.data);
+      const sorted = Array.isArray(r.data) ? [...r.data].sort((a: any, b: any) => {
+        const idA = String(a.student_id || a.reg_no || '').trim();
+        const idB = String(b.student_id || b.reg_no || '').trim();
+        return idA.localeCompare(idB, undefined, { numeric: true });
+      }) : r.data;
+      setStudents(sorted);
       setSelectedIds(new Set());
       setSelectAll(false);
     } catch {

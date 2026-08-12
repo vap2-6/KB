@@ -32,23 +32,14 @@ ENV_FILE_ABS="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
 
 echo "Loading environment variables from $ENV_FILE_ABS"
 
-while IFS= read -r line || [ -n "$line" ]; do
-  line="$(echo "$line" | tr -d '\r')"
-  trimmed="$(echo "$line" | sed -e 's/^[[:space:]]*//')"
-  case "$trimmed" in
+while IFS='=' read -r key value; do
+  case "$key" in
     ''|'#'*) continue ;;
   esac
-  if [[ "$line" == *"="* ]]; then
-    key="${line%%=*}"
-    value="${line#*=}"
-    key="$(echo "$key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    value="$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    value="${value%\"}"; value="${value#\"}"
-    value="${value%\'}"; value="${value#\'}"
-    if [[ "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-      export "$key=$value"
-    fi
-  fi
+  key="$(echo "$key" | tr -d '\r' | xargs)"
+  value="$(echo "$value" | tr -d '\r')"
+  value="${value%\"}"; value="${value#\"}"
+  export "$key=$value"
 done < "$ENV_FILE"
 
 export MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"

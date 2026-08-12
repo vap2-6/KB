@@ -29,15 +29,13 @@ import {
   Activity,
   Search,
   Sun,
-  Moon,
-  HeartHandshake
+  Moon
 } from "lucide-react";
 import { Student, Token, TerminalSession, ScanMode } from "./types";
 import QRScanner from "./components/QRScanner";
 import { IssueTokenModal, VerifyTokenModal } from "./components/Modals";
 import StudentDetails from "./components/StudentDetails";
 import rkmLogo from "./assets/images/rkm_logo.png";
-import VolunteerPermitting from "./components/VolunteerPermitting";
 
 // Safely wrap sessionStorage to prevent SecurityErrors in sandboxed/cross-origin iframes
 const safeSessionStorage = {
@@ -83,7 +81,7 @@ const getLocalDateString = (dateObj: Date = new Date()): string => {
 
 export default function App() {
   // Navigation & Filtering States
-  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "volunteers" | "export" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "export" | "settings">("dashboard");
   const [session, setSession] = useState<TerminalSession | null>({
     staffId: "STAFF101",
     terminalName: "Office Registration Desk 1",
@@ -154,6 +152,7 @@ export default function App() {
 
   // Active Modals state
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [existingToken, setExistingToken] = useState<Token | null>(null);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
 
   const [currentTokenData, setCurrentTokenData] = useState<{ token: Token; student: Student } | null>(null);
@@ -307,7 +306,12 @@ export default function App() {
       const res = await apiFetch("/api/students");
       if (res.ok) {
         const data = await res.json();
-        setStudents(data);
+        const sorted = Array.isArray(data) ? [...data].sort((a: any, b: any) => {
+          const idA = String(a.id || a.roll || a.reg_no || '').trim();
+          const idB = String(b.id || b.roll || b.reg_no || '').trim();
+          return idA.localeCompare(idB, undefined, { numeric: true });
+        }) : data;
+        setStudents(sorted);
         return;
       }
     } catch (e) {
@@ -660,20 +664,15 @@ export default function App() {
       if (scanRes.ok) {
         const tokenData = await scanRes.json();
 
-        if (tokenData.token) {
+        const isExplicitTokenScan = tokenData.scanned_type === "token_qr" || (tokenData.token && !tokenData.scanned_type);
+
+        if (isExplicitTokenScan && tokenData.token) {
           const st = (tokenData.token.status || '').toLowerCase();
           if (st === 'redeemed' || st === 'claimed' || st === 'used') {
             showToast("Meal Already Claimed", `A meal was already distributed for ${tokenData.student?.name || tokenData.token.student_reg}.`, "warning");
             playBeep("warning");
             return;
           } else if (st === 'rejected' || st === 'expired') {
-            if (tokenData.student) {
-              setCurrentStudent(tokenData.student);
-              setIsIssueModalOpen(true);
-              playBeep("info");
-              showToast("Token Expired", `Token for ${tokenData.student.name || 'student'} was expired. Ready to issue fresh token.`, "info");
-              return;
-            }
             showToast("Token Flagged Invalid", `This token is marked as ${st} in the database.`, "error");
             playBeep("error");
             return;
@@ -703,6 +702,7 @@ export default function App() {
           return;
         } else if (tokenData.student) {
           setCurrentStudent(tokenData.student);
+          setExistingToken(tokenData.existing_token || null);
           setIsIssueModalOpen(true);
           playBeep("success");
           return;
@@ -715,11 +715,12 @@ export default function App() {
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
         if (tokenData.token || tokenData.student) {
-          if (tokenData.token) {
+          if (tokenData.scanned_type === "token_qr" && tokenData.token) {
             setCurrentTokenData(tokenData);
             setIsVerifyModalOpen(true);
-          } else {
+          } else if (tokenData.student) {
             setCurrentStudent(tokenData.student);
+            setExistingToken(tokenData.existing_token || null);
             setIsIssueModalOpen(true);
           }
           playBeep("success");
@@ -732,6 +733,7 @@ export default function App() {
       if (studentRes.ok) {
         const studentData = await studentRes.json();
         setCurrentStudent(studentData);
+        setExistingToken(null);
         setIsIssueModalOpen(true);
         playBeep("success");
         return;
@@ -739,9 +741,10 @@ export default function App() {
 
       showToast("No Record Found", `No student or token matching '${displayLabel}' was found.`, "error");
       playBeep("error");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Scan verification error:", err);
-      showToast("Scan Error", `Could not reach the server. Check your connection and try again.`, "error");
+      const errMsg = err?.message || String(err);
+      showToast("Scan Error", errMsg.includes("Failed to fetch") ? "Could not reach the server. Check your connection and try again." : `Scan Error: ${errMsg}`, "error");
       playBeep("error");
     }
   };
@@ -1097,21 +1100,6 @@ export default function App() {
             >
               <Users className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
               <span>Student Details</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab("volunteers");
-                if (window.innerWidth < 768) setIsSidebarOpen(false);
-              }}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === "volunteers"
-                  ? "bg-amber-50 text-[#FF9933] border border-amber-200"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent"
-              }`}
-            >
-              <HeartHandshake className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
-              <span>Guest Passes</span>
             </button>
 
             <button
@@ -1490,13 +1478,6 @@ export default function App() {
             </div>
           )}
 
-          {/* VOLUNTEER PERMITTING VIEW */}
-          {activeTab === "volunteers" && (
-            <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
-              <VolunteerPermitting staffId={session?.staffId} showToast={showToast} playBeep={playBeep} />
-            </div>
-          )}
-          
           {/* B: STUDENT DETAILS VIEW */}
           {activeTab === "students" && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300 my-6 px-4 md:px-0">
@@ -1889,7 +1870,7 @@ export default function App() {
                                   {t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
                                 </td>
                                 <td className="py-3.5 px-6 text-slate-400 font-mono text-[11px]">
-                                  {stLower === 'redeemed' && t.created_at ? new Date(t.created_at).toLocaleString() : '-'}
+                                  {stLower === 'redeemed' ? (t.redeemed_at ? new Date(t.redeemed_at).toLocaleString() : (t.created_at ? new Date(t.created_at).toLocaleString() : '-')) : '-'}
                                 </td>
                               </tr>
                             );
@@ -2157,8 +2138,11 @@ export default function App() {
         onClose={() => {
           setIsIssueModalOpen(false);
           setCurrentStudent(null);
+          setExistingToken(null);
         }}
         student={currentStudent}
+        existingToken={existingToken}
+        tokens={tokens}
         onConfirmIssue={handleConfirmIssue}
         onRejectIssue={handleRejectIssue}
       />

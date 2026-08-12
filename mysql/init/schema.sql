@@ -38,9 +38,35 @@ CREATE TABLE IF NOT EXISTS `student_meals` (
   `qr_secret` VARCHAR(64) NULL,
   `image_url` VARCHAR(512) NULL DEFAULT NULL,  -- Storage bucket/URL pointer
   `image_path` VARCHAR(512) NULL DEFAULT NULL, -- Local storage filepath
+  `previous_degree_year` VARCHAR(50) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`student_id`),
   UNIQUE KEY `idx_student_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================================================================
+-- 2B. GRADUATED STUDENTS ARCHIVE
+-- Historical alumni archive holding graduated student profiles.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS `graduated_students` (
+  `student_id` VARCHAR(50) NOT NULL,
+  `username` VARCHAR(50) NOT NULL,
+  `email` VARCHAR(100) NULL,
+  `password_hash` VARCHAR(255) NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `grade_section` VARCHAR(100) NOT NULL,
+  `degree_year` VARCHAR(50) NOT NULL DEFAULT 'Graduated',
+  `previous_degree_year` VARCHAR(50) NULL,
+  `graduation_year` INT NOT NULL,
+  `graduated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `forenoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+  `afternoon_meal` TINYINT(1) NOT NULL DEFAULT 0,
+  `qr_secret` VARCHAR(64) NULL,
+  `image_url` VARCHAR(512) NULL DEFAULT NULL,
+  `image_path` VARCHAR(512) NULL DEFAULT NULL,
+  PRIMARY KEY (`student_id`),
+  INDEX `idx_grad_year` (`graduation_year`),
+  INDEX `idx_grad_time` (`graduated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================================================================

@@ -893,7 +893,7 @@ export default function MealRegistrationForm() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">Year of Degree *</label>
                             <select id="degree_year_select" name="degree_year" required className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-amber-500 outline-none">
@@ -901,13 +901,6 @@ export default function MealRegistrationForm() {
                                 <option value="1st Year">1st Year</option>
                                 <option value="2nd Year">2nd Year</option>
                                 <option value="3rd Year">3rd Year</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Student Category *</label>
-                            <select id="student_category_select" name="student_category" required className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-amber-500 outline-none">
-                                <option value="Regular">Regular Student</option>
-                                <option value="NCC">NCC Student / Cadet</option>
                             </select>
                         </div>
                         <div>

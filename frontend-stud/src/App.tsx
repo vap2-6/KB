@@ -158,8 +158,7 @@ export default function App() {
     const hDisplay = h < 10 ? `0${h}` : `${h}`;
     return `${hDisplay}:${m} ${ampm}`;
   };
-
-  const isTimeInWindow = (start24?: string, end24?: string, expiryMins: number = 15) => {
+  const isTimeInWindow = (start24?: string, end24?: string) => {
     if (!start24 || !end24) return false;
     const now = new Date();
     const [sH, sM] = start24.split(':').map(Number);
@@ -169,7 +168,7 @@ export default function App() {
     startTime.setHours(sH, sM, 0, 0);
     
     const endTime = new Date(now);
-    endTime.setHours(eH, eM + expiryMins, 0, 0);
+    endTime.setHours(eH, eM, 0, 0);
     
     return now >= startTime && now <= endTime;
   };
@@ -217,7 +216,7 @@ export default function App() {
           const bfStart = fn.start || '07:30';
           const bfEnd = fn.end || '10:00';
           const lunchStart = an.start || '12:00';
-          const lunchEnd = an.end || '14:30';
+          const lunchEnd = an.end || '19:30';
           setMealWindowConfig({
             bfStart: format12Hour(bfStart),
             bfEnd: format12Hour(bfEnd),
@@ -225,10 +224,10 @@ export default function App() {
             lunchEnd: format12Hour(lunchEnd),
             bfRawStart: bfStart,
             bfRawEnd: bfEnd,
-            bfExpiry: fn.expiry ?? 15,
+            bfExpiry: fn.expiry ?? 30,
             lunchRawStart: lunchStart,
             lunchRawEnd: lunchEnd,
-            lunchExpiry: an.expiry ?? 15,
+            lunchExpiry: an.expiry ?? 30,
           });
         }
       } catch (e) { }
@@ -245,10 +244,10 @@ export default function App() {
         // Fetch Admin Configured Meal Window Timings & Expiry
         let activeBfStart = '07:30';
         let activeBfEnd = '10:00';
-        let activeBfExpiry = 15;
+        let activeBfExpiry = 30;
         let activeLunchStart = '12:00';
-        let activeLunchEnd = '14:30';
-        let activeLunchExpiry = 15;
+        let activeLunchEnd = '19:30';
+        let activeLunchExpiry = 30;5;
 
         try {
           const cfgRes = await fetch('/api/public/meal-config');
@@ -417,6 +416,9 @@ export default function App() {
 
           if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
             if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
+              if (!isWindowActive) {
+                return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+              }
               return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
             }
             let qrUrl: string | null = null;
@@ -429,8 +431,14 @@ export default function App() {
           } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
             return { status: 'claimed', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           } else if (st === 'expired') {
+            if (!isWindowActive) {
+              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+            }
             return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           } else if (st === 'rejected') {
+            if (!isWindowActive) {
+              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+            }
             return { status: 'rejected', qrCodeUrl: null, expiresAtMs: 0, tokenId };
           }
 
@@ -659,11 +667,23 @@ export default function App() {
       console.warn("Backend auth login fallback:", err);
     }
 
+    const foundByRegNo = studentsList.find(
+      s => (s.id.toUpperCase() === trimmedId.toUpperCase() || s.roll.toUpperCase() === trimmedId.toUpperCase())
+    );
+    if (foundByRegNo && foundByRegNo.year && foundByRegNo.year.toLowerCase().includes('graduat')) {
+      setError('The student is not studing this year.');
+      return;
+    }
+
     const found = studentsList.find(
       s => (s.id.toUpperCase() === trimmedId.toUpperCase() || s.roll.toUpperCase() === trimmedId.toUpperCase()) && s.password === trimmedPw
     );
 
     if (found) {
+      if (found.year && found.year.toLowerCase().includes('graduat')) {
+        setError('The student is not studing this year.');
+        return;
+      }
       setLoggedInStudent(found);
       localStorage.setItem('canteen_student_session', JSON.stringify(found));
       setActiveTab('canteen');
@@ -1627,17 +1647,8 @@ export default function App() {
                     {/* Info grid */}
                     <div className="flex-grow w-full space-y-6">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <p className={`text-xs font-bold uppercase tracking-widest ${theme === 'black' ? 'text-amber-400 dark:text-amber-400' : 'text-amber-600'
-                            }`}>Student Profile</p>
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border tracking-wider ${
-                            (loggedInStudent.student_category || "Regular").toUpperCase() === "NCC"
-                              ? "bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs"
-                              : "bg-blue-50 text-blue-800 border-blue-200"
-                          }`}>
-                            {(loggedInStudent.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular Student"}
-                          </span>
-                        </div>
+                        <p className={`text-xs font-bold uppercase tracking-widest ${theme === 'black' ? 'text-amber-400 dark:text-amber-400' : 'text-amber-600'
+                          }`}>Student Profile</p>
                         <h2 className={`text-2xl font-bold font-display mt-0.5 ${theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900'
                           }`}>{loggedInStudent.name}</h2>
                         <p className={`text-xs font-semibold ${theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-500'
@@ -1648,14 +1659,6 @@ export default function App() {
                         }`}>
                         <div className="space-y-2">
                           <div className="grid grid-cols-2 gap-2">
-                            <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Category:</span>
-                            <span className={`font-extrabold uppercase ${
-                              (loggedInStudent.student_category || "Regular").toUpperCase() === "NCC"
-                                ? "text-emerald-500"
-                                : (theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900')
-                            }`}>
-                              {(loggedInStudent.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular"}
-                            </span>
                             <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Department:</span>
                             <span className={`font-semibold ${theme === 'black' ? 'text-zinc-100 dark:text-zinc-100' : 'text-zinc-900'}`}>{loggedInStudent.dept || 'Student'}</span>
                             <span className={theme === 'black' ? 'text-zinc-400 dark:text-zinc-400' : 'text-zinc-400'}>Year:</span>
