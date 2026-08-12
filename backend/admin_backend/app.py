@@ -134,6 +134,7 @@ def _ensure_student_meals_columns(cur):
         ('email', 'VARCHAR(100) NULL'),
         ('password_hash', 'VARCHAR(255) NULL'),
         ('degree_year', 'VARCHAR(50) NULL'),
+        ('student_category', "VARCHAR(20) DEFAULT 'Regular'"),
         ('mobile_no', 'VARCHAR(50) NULL'),
         ('qr_secret', 'VARCHAR(64) NULL'),
         ('image_url', 'VARCHAR(512) NULL'),
@@ -164,7 +165,8 @@ def _ensure_meal_registrations_columns(cur):
     """Ensures required columns exist in meal_registrations table."""
     cols = [
         ('date_of_birth', 'VARCHAR(50) NULL AFTER dob_age'),
-        ('age', 'INT NULL AFTER date_of_birth')
+        ('age', 'INT NULL AFTER date_of_birth'),
+        ('student_category', "VARCHAR(20) DEFAULT 'Regular'")
     ]
     for col, col_def in cols:
         try:
@@ -329,6 +331,27 @@ def _ensure_tables(conn):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS guest_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token_uid VARCHAR(50) UNIQUE NOT NULL,
+                guest_name VARCHAR(100) NOT NULL,
+                guest_role VARCHAR(100) NULL,
+                phone_no VARCHAR(20) NULL,
+                email VARCHAR(100) NULL,
+                pass_count INT DEFAULT 1,
+                claimed_count INT DEFAULT 0,
+                valid_date DATE NOT NULL,
+                status ENUM('active','claimed','rejected','expired') DEFAULT 'active',
+                issued_by VARCHAR(50) NULL,
+                claimed_by VARCHAR(50) NULL,
+                claimed_at TIMESTAMP NULL,
+                note TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_guest_token_uid (token_uid),
+                INDEX idx_guest_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS import_logs (
                 id VARCHAR(50) PRIMARY KEY, filename VARCHAR(255) NOT NULL,
                 records_imported INT DEFAULT 0,
@@ -450,20 +473,22 @@ def _sync_approved_registrations_to_student_meals(conn):
                 qr_sec = _gen_qr_secret(sid)
                 img_url = r.get('student_image_path') or r.get('student_photo_url') or f"https://ui-avatars.com/api/?name={quote_plus(display_name)}&background=random"
                 img_path = r.get('student_image_path') or r.get('student_photo_url') or ''
+                stu_cat = r.get('student_category') or 'Regular'
                 cur.execute("""
                     INSERT INTO student_meals (
                         student_id, username, email, password_hash, name, grade_section,
-                        degree_year, mobile_no,
+                        degree_year, student_category, mobile_no,
                         forenoon_meal, afternoon_meal, qr_secret, image_url, image_path,
                         student_image_path
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     ) ON DUPLICATE KEY UPDATE
                         username=VALUES(username),
                         email=VALUES(email),
                         name=VALUES(name),
                         grade_section=VALUES(grade_section),
                         degree_year=VALUES(degree_year),
+                        student_category=VALUES(student_category),
                         mobile_no=VALUES(mobile_no),
                         forenoon_meal=VALUES(forenoon_meal),
                         afternoon_meal=VALUES(afternoon_meal),
@@ -473,7 +498,7 @@ def _sync_approved_registrations_to_student_meals(conn):
                         student_image_path=VALUES(student_image_path)
                 """, (
                     sid, username, student_email, pw_hash, display_name, grade_sec,
-                    deg_year, mobile_num,
+                    deg_year, stu_cat, mobile_num,
                     fn_meal, an_meal, qr_sec, img_url, img_path,
                     img_path
                 ))

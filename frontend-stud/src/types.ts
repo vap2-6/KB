@@ -5,6 +5,7 @@ export interface Student {
   roll: string;
   dept: string;
   year: string;
+  student_category?: string;
   email?: string;
   mobile?: string;
   forenoon_meal?: boolean;

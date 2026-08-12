@@ -112,9 +112,20 @@ export function IssueTokenModal({
           <h4 className="text-lg font-extrabold text-slate-900 text-center">
             {student.name}
           </h4>
-          <p className="text-xs font-mono font-bold text-[#FF9933] bg-amber-50 px-3 py-1 rounded-full border border-amber-100 mt-1">
-            REG: {student.reg_no}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs font-mono font-bold text-[#FF9933] bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+              REG: {student.reg_no}
+            </span>
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider ${
+                (student.student_category || "Regular").toUpperCase() === "NCC"
+                  ? "bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs"
+                  : "bg-blue-50 text-blue-800 border-blue-200"
+              }`}
+            >
+              {(student.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular"}
+            </span>
+          </div>
 
           {/* Alert Banner when Ineligible */}
           {isIneligible && (
@@ -127,6 +138,18 @@ export function IssueTokenModal({
           {/* Student Profile Info Fields */}
           <div className="w-full mt-4 space-y-2.5 bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
             <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500">Student Category:</span>
+              <span
+                className={`font-black px-2.5 py-0.5 rounded text-[10px] border uppercase ${
+                  (student.student_category || "Regular").toUpperCase() === "NCC"
+                    ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                    : "bg-blue-50 text-blue-800 border-blue-200"
+                }`}
+              >
+                {(student.student_category || "Regular").toUpperCase() === "NCC" ? "NCC Cadet" : "Regular Student"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-xs border-t border-slate-200/60 pt-2">
               <span className="text-slate-500">Academic Year:</span>
               <span className="font-bold text-slate-900">{student.year}</span>
             </div>
