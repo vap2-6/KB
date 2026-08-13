@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS `student_meals` (
   `image_url` VARCHAR(512) NULL DEFAULT NULL,  -- Storage bucket/URL pointer
   `image_path` VARCHAR(512) NULL DEFAULT NULL, -- Local storage filepath
   `previous_degree_year` VARCHAR(50) NULL,
+  `graduation_status` TINYINT(1) NOT NULL DEFAULT 0, -- 0 = Active Enrolled, 1 = Recent Graduate
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`student_id`),
   UNIQUE KEY `idx_student_username` (`username`)
@@ -161,6 +162,38 @@ CREATE TABLE IF NOT EXISTS `data_io_logs` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_io_time` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================================================================
+-- 8. INVOICES & FINANCIAL STATEMENTS
+-- Internal metric reporting ledger for token utilization at ₹50 per meal.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS `invoices` (
+  `id` VARCHAR(50) NOT NULL,
+  `invoice_no` VARCHAR(50) NOT NULL,
+  `title` VARCHAR(255) NOT NULL DEFAULT 'RKMVC Meal Dining Portal - Internal Financial Statement',
+  `from_date` DATE NOT NULL,
+  `to_date` DATE NOT NULL,
+  `category_filter` VARCHAR(255) NOT NULL DEFAULT 'All',
+  `rate_per_meal` DECIMAL(10,2) NOT NULL DEFAULT 50.00,
+  `general_student_tokens` INT NOT NULL DEFAULT 0,
+  `general_student_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `ncc_student_tokens` INT NOT NULL DEFAULT 0,
+  `ncc_student_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `volunteer_tokens` INT NOT NULL DEFAULT 0,
+  `volunteer_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `guest_tokens` INT NOT NULL DEFAULT 0,
+  `guest_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `total_tokens` INT NOT NULL DEFAULT 0,
+  `grand_total_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `generated_by` VARCHAR(50) NOT NULL DEFAULT 'System / Admin',
+  `is_automated_cron` TINYINT(1) NOT NULL DEFAULT 0,
+  `notes` TEXT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_invoice_no` (`invoice_no`),
+  INDEX `idx_inv_dates` (`from_date`, `to_date`),
+  INDEX `idx_inv_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Seed default meal timings into app_state

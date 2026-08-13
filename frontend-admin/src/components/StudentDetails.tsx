@@ -151,7 +151,9 @@ export default function StudentDetails({ showToast }: StudentDetailsProps) {
         reg_no: String(s.student_id || s.reg_no || ""),
         name: s.name || "Unknown Student",
         department: s.grade_section || s.department || "General",
-        year: viewTab === 'graduated' ? `Graduated (${s.graduation_year || 'Alumni'})` : formatAcademicYear(s.degree_year || s.year),
+        year: viewTab === 'graduated' 
+          ? (s.archive_type === 'recent' ? `Graduated (Recent Batch)` : `Graduated (${s.graduation_year || 'Archived'})`) 
+          : formatAcademicYear(s.degree_year || s.year),
         image_url: s.image_url || s.image_path || s.student_image_path || "",
         forenoon_meal: s.forenoon_meal !== false && s.forenoon_meal !== 0,
         afternoon_meal: s.afternoon_meal !== false && s.afternoon_meal !== 0,

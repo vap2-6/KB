@@ -15,6 +15,7 @@ import AuthModule from './components/AuthModule';
 import UserManagement from './components/UserManagement';
 import DiningVerification from './components/DiningVerification';
 import StudentDetails from './components/StudentDetails';
+import InvoiceModule from './components/InvoiceModule';
 import Toast, { ToastType } from './components/Toast';
 import MealReportScheduler from './components/MealReportScheduler';
 import api from './lib/api';
@@ -208,6 +209,7 @@ export default function App() {
               {currentTab === 'dashboard' && <Dashboard showToast={showToast} onNavigate={setCurrentTab} />}
               {currentTab === 'requests' && <RequestsModule showToast={showToast} onPendingCountChange={setPendingRequestsCount} />}
               {currentTab === 'student-details' && <StudentDetails showToast={showToast} />}
+              {currentTab === 'invoices' && <InvoiceModule showToast={showToast} />}
               {currentTab === 'database' && <DatabaseModule user={user} showToast={showToast} />}
               {currentTab === 'dining-verification' && <DiningVerification showToast={showToast} />}
               {currentTab === 'import' && <DataTools showToast={showToast} onNavigate={setCurrentTab} />}

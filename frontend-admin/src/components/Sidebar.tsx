@@ -18,7 +18,8 @@ import {
   ChevronDown,
   Users,
   Users2,
-  ChefHat
+  ChefHat,
+  Receipt
 } from 'lucide-react';
 // @ts-ignore
 import rkmLogo from '../assets/images/rkm_logo.png';
@@ -39,6 +40,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
     { id: 'dashboard', label: 'Meal Dashboard', icon: LayoutDashboard },
     { id: 'requests', label: 'Registration Requests', icon: Bell, badge: pendingRequestsCount },
     { id: 'student-details', label: 'Student Details', icon: Users },
+    { id: 'invoices', label: 'Invoice / Statement', icon: Receipt },
     { id: 'token-monitor', label: 'Token & Distribution', icon: Activity },
     { id: 'communications', label: 'Communications', icon: Send },
   ];
