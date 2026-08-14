@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Activity, RefreshCw, Search, Calendar, CheckCircle, XCircle, Loader, Sun, Moon, Filter, Download, ChevronDown, FileText, Printer } from 'lucide-react';
 import api from '../lib/api';
+import { useSmartInterval } from '../hooks/useSmartInterval';
 
 interface TokenRecord {
   id: string;
@@ -73,9 +74,9 @@ export default function TokenMonitor({ showToast }: TokenMonitorProps) {
   useEffect(() => {
     setLoading(true);
     fetchData();
-    intervalRef.current = setInterval(fetchData, 10000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [dateFrom, dateTo, mealFilter, statusFilter]);
+
+  useSmartInterval(fetchData, 10000);
 
   const filteredTokens = tokens.filter(t =>
     (t.token_code || t.token_uid || '').toLowerCase().includes(search.toLowerCase()) ||

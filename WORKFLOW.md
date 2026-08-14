@@ -74,7 +74,7 @@ When an Admin triggers a choice toggle, the backend processes an atomic lifecycl
    - **Immediate Execution for Past Input**: If the set date and time are in the past (or present), migration executes **immediately** upon saving (`PUT /api/meal-config`), and the displayed schedule rolls forward to the upcoming year.
    - **Catch-Up Infinite Loop Prevention**: When advancing past dates, the backend advances by +1 year iteratively until `next_date > NOW()`, guaranteeing exactly one execution without cascading multiple past-year migrations.
    - **Leap Year (Feb 29) Exception Handling**: Scheduling on Feb 29 in a leap year falls back gracefully to Feb 28 in non-leap years.
-   - **Thread Safety & Background Monitoring**: Managed with database row locks (`SELECT FOR UPDATE`) and monitored by a background daemon worker thread (`YearMigrationSchedulerThread`) polling every 30 seconds.
+   - **Event-Driven APScheduler Architecture**: Managed with database row locks (`SELECT FOR UPDATE`) and scheduled using an event-driven `APScheduler` (`BackgroundScheduler`) in Python. Eliminates database polling completely—jobs sit in memory/timer queue and trigger strictly at the target datetime, automatically overwriting old jobs on date changes and rescheduling on revokes.
 
 ---
 
@@ -156,8 +156,10 @@ The Canteen Staff handles real-time gate validation during dining distributions.
 - **Interactive Popup Modal Trigger**: Active tokens render **"OPEN QR CODE"** button. Clicking opens modal overlay displaying scannable QR Code image and live countdown timer.
 - **Automatic Expiration Handling**: If timer expires during view, modal dynamically switches to **"Token Expired"**.
 
-### Real-Time Canteen Token History View
-- **Server-Driven Token Log**: History tab polls real-time database entries matching student's registration ID (`student_reg`).
+### Real-Time Smart Polling & State Synchronization
+- **Tab-Aware Smart Polling (`useSmartInterval`)**: Frontend apps poll database entries using a custom `useSmartInterval` React hook backed by the Page Visibility API (`document.visibilityState`).
+- **Background Pause**: When a user minimizes their browser window, locks their mobile screen, or switches to another tab, all polling timers pause immediately to reduce server CPU and network traffic.
+- **Instant Focus Refresh**: As soon as the user returns to the tab (`visibilityState === 'visible'`), an immediate fetch is triggered to instantly render fresh token statuses and approval updates.
 - **Dynamic History Cards**: History entries render:
   - **Meal Indicator**: Breakfast Token (coffee icon) / Lunch Token (utensils icon).
   - **Token Identifier Badge**: Explicit token tracking code (e.g., `TOK-1784981404`).

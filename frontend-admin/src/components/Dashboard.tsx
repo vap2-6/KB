@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSmartInterval } from '../hooks/useSmartInterval';
 import {
   Users,
   Sun,
@@ -69,11 +70,7 @@ export default function Dashboard({ showToast, onNavigate }: DashboardProps) {
     }
   };
 
-  useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000); // refresh every 30s (Area 5 Item 4)
-    return () => clearInterval(interval);
-  }, []);
+  useSmartInterval(fetchDashboardData, 30000);
 
   // Quick Action: add student
   const handleQuickRegister = async (e: React.FormEvent) => {

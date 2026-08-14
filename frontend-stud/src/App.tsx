@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSmartInterval } from './hooks/useSmartInterval';
 import QRCode from 'qrcode';
 import {
   Home,
@@ -234,244 +235,239 @@ export default function App() {
     };
     fetchMealConfig();
   }, []);
-
-  // === SERVER POLLING: Fetch active tokens every 8 seconds ===
-  useEffect(() => {
+  // === SERVER POLLING: Fetch active tokens with Smart Polling (Page Visibility API) ===
+  const pollTokens = useCallback(async () => {
     if (!loggedInStudent) return;
+    try {
+      // Fetch Admin Configured Meal Window Timings & Expiry
+      let activeBfStart = '07:30';
+      let activeBfEnd = '10:00';
+      let activeBfExpiry = 30;
+      let activeLunchStart = '12:00';
+      let activeLunchEnd = '19:30';
+      let activeLunchExpiry = 30;
 
-    const pollTokens = async () => {
       try {
-        // Fetch Admin Configured Meal Window Timings & Expiry
-        let activeBfStart = '07:30';
-        let activeBfEnd = '10:00';
-        let activeBfExpiry = 30;
-        let activeLunchStart = '12:00';
-        let activeLunchEnd = '19:30';
-        let activeLunchExpiry = 30;5;
+        const cfgRes = await fetch('/api/public/meal-config');
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          const fn = cfg.forenoon || {};
+          const an = cfg.afternoon || {};
+          if (fn.start) activeBfStart = fn.start;
+          if (fn.end) activeBfEnd = fn.end;
+          if (fn.expiry !== undefined) activeBfExpiry = fn.expiry;
 
-        try {
-          const cfgRes = await fetch('/api/public/meal-config');
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            const fn = cfg.forenoon || {};
-            const an = cfg.afternoon || {};
-            if (fn.start) activeBfStart = fn.start;
-            if (fn.end) activeBfEnd = fn.end;
-            if (fn.expiry !== undefined) activeBfExpiry = fn.expiry;
+          if (an.start) activeLunchStart = an.start;
+          if (an.end) activeLunchEnd = an.end;
+          if (an.expiry !== undefined) activeLunchExpiry = an.expiry;
 
-            if (an.start) activeLunchStart = an.start;
-            if (an.end) activeLunchEnd = an.end;
-            if (an.expiry !== undefined) activeLunchExpiry = an.expiry;
-
-            setMealWindowConfig({
-              bfStart: format12Hour(activeBfStart),
-              bfEnd: format12Hour(activeBfEnd),
-              lunchStart: format12Hour(activeLunchStart),
-              lunchEnd: format12Hour(activeLunchEnd),
-              bfRawStart: activeBfStart,
-              bfRawEnd: activeBfEnd,
-              bfExpiry: activeBfExpiry,
-              lunchRawStart: activeLunchStart,
-              lunchRawEnd: activeLunchEnd,
-              lunchExpiry: activeLunchExpiry,
-            });
-          }
-        } catch (e) { }
-
-        let res = await fetch(`/api/staff/tokens?student_reg=${encodeURIComponent(loggedInStudent.id)}`);
-        let allTokens: any[] = [];
-        if (res.ok) {
-          allTokens = await res.json();
+          setMealWindowConfig({
+            bfStart: format12Hour(activeBfStart),
+            bfEnd: format12Hour(activeBfEnd),
+            lunchStart: format12Hour(activeLunchStart),
+            lunchEnd: format12Hour(activeLunchEnd),
+            bfRawStart: activeBfStart,
+            bfRawEnd: activeBfEnd,
+            bfExpiry: activeBfExpiry,
+            lunchRawStart: activeLunchStart,
+            lunchRawEnd: activeLunchEnd,
+            lunchExpiry: activeLunchExpiry,
+          });
         }
-        if (allTokens.length === 0 && loggedInStudent.roll && loggedInStudent.roll !== loggedInStudent.id) {
-          const res2 = await fetch(`/api/staff/tokens?student_reg=${encodeURIComponent(loggedInStudent.roll)}`);
-          if (res2.ok) {
-            allTokens = await res2.json();
-          }
+      } catch (e) { }
+
+      let res = await fetch(`/api/staff/tokens?student_reg=${encodeURIComponent(loggedInStudent.id)}`);
+      let allTokens: any[] = [];
+      if (res.ok) {
+        allTokens = await res.json();
+      }
+      if (allTokens.length === 0 && loggedInStudent.roll && loggedInStudent.roll !== loggedInStudent.id) {
+        const res2 = await fetch(`/api/staff/tokens?student_reg=${encodeURIComponent(loggedInStudent.roll)}`);
+        if (res2.ok) {
+          allTokens = await res2.json();
+        }
+      }
+
+      // Map all tokens for history view
+      const historyItems: TokenHistoryItem[] = allTokens.map((t: any) => {
+        const mealName = (t.meal_type || '').toLowerCase().includes('breakfast') || (t.meal_type || '').toLowerCase().includes('forenoon') ? 'Breakfast' : 'Lunch';
+        const rawDate = t.created_at || t.generated_at || t.scanned_at || new Date().toISOString();
+        const dt = new Date(rawDate);
+        const dateStr = dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        const timeStr = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const st = (t.status || '').toLowerCase();
+
+        let statusText = 'Pending Approval';
+        if (st === 'active' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'awaiting_scan' || st === 'open') {
+          statusText = 'Open / Issued';
+        } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
+          statusText = 'Claimed';
+        } else if (st === 'expired') {
+          statusText = 'Expired';
+        } else if (st === 'rejected') {
+          statusText = 'Rejected';
         }
 
-        // Map all tokens for history view
-        const historyItems: TokenHistoryItem[] = allTokens.map((t: any) => {
-          const mealName = (t.meal_type || '').toLowerCase().includes('breakfast') || (t.meal_type || '').toLowerCase().includes('forenoon') ? 'Breakfast' : 'Lunch';
-          const rawDate = t.created_at || t.generated_at || t.scanned_at || new Date().toISOString();
-          const dt = new Date(rawDate);
-          const dateStr = dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-          const timeStr = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-          const st = (t.status || '').toLowerCase();
+        return {
+          id: t.token_id || t.token_uid || t.id || String(Math.random()),
+          token_id: t.token_id || t.token_uid || 'TOK-REG',
+          meal: mealName,
+          date: dateStr,
+          time: timeStr,
+          status: statusText
+        };
+      });
 
-          let statusText = 'Pending Approval';
-          if (st === 'active' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'awaiting_scan' || st === 'open') {
-            statusText = 'Open / Issued';
-          } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            statusText = 'Claimed';
-          } else if (st === 'expired') {
-            statusText = 'Expired';
-          } else if (st === 'rejected') {
-            statusText = 'Rejected';
+      setTokenHistory(historyItems);
+
+      // Find today's tokens for this student using local date YYYY-MM-DD
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      // Check Student Eligibility
+      const isBfEligible = loggedInStudent.forenoon_meal !== false && (loggedInStudent as any).forenoon_meal !== 0;
+      const isLunchEligible = loggedInStudent.afternoon_meal !== false && (loggedInStudent as any).afternoon_meal !== 0;
+
+      // Check Window Active Time (Admin Config Window Check)
+      const isBfWindowActive = isTimeInWindow(activeBfStart, activeBfEnd, activeBfExpiry);
+      const isLunchWindowActive = isTimeInWindow(activeLunchStart, activeLunchEnd, activeLunchExpiry);
+
+      const parseLocalISO = (strVal: any) => {
+        if (!strVal) return 0;
+        const clean = String(strVal).trim().replace('T', ' ').split('.')[0];
+        const parts = clean.split(' ');
+        if (parts.length >= 2) {
+          const dateParts = parts[0].split('-').map(Number);
+          const timeParts = parts[1].split(':').map(Number);
+          if (dateParts.length === 3 && timeParts.length >= 2) {
+            return new Date(
+              dateParts[0],
+              dateParts[1] - 1,
+              dateParts[2],
+              timeParts[0],
+              timeParts[1],
+              timeParts[2] || 0
+            ).getTime();
           }
+        }
+        const fallback = new Date(strVal).getTime();
+        return isNaN(fallback) ? 0 : fallback;
+      };
 
-          return {
-            id: t.token_id || t.token_uid || t.id || String(Math.random()),
-            token_id: t.token_id || t.token_uid || 'TOK-REG',
-            meal: mealName,
-            date: dateStr,
-            time: timeStr,
-            status: statusText
-          };
+      const getMealState = async (
+        mealName: 'Breakfast' | 'Lunch',
+        isEligible: boolean,
+        isWindowActive: boolean
+      ): Promise<ActiveTokenState> => {
+        if (!isEligible) {
+          return { status: 'not_eligible', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+        }
+
+        // Filter tokens for this meal today
+        const matchingTokens = allTokens.filter((t: any) => {
+          const mt = (t.meal_type || '').toLowerCase();
+          const isMealMatch = mealName === 'Breakfast'
+            ? (mt.includes('breakfast') || mt.includes('forenoon'))
+            : (mt.includes('lunch') || mt.includes('afternoon'));
+          if (!isMealMatch) return false;
+          const rawDateStr = t.created_at || t.generated_at || '';
+          const tokenDate = rawDateStr.split('T')[0].split(' ')[0];
+          return !tokenDate || tokenDate === todayStr;
         });
 
-        setTokenHistory(historyItems);
-
-        // Find today's tokens for this student using local date YYYY-MM-DD
-        const now = new Date();
-        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-        // Check Student Eligibility
-        const isBfEligible = loggedInStudent.forenoon_meal !== false && (loggedInStudent as any).forenoon_meal !== 0;
-        const isLunchEligible = loggedInStudent.afternoon_meal !== false && (loggedInStudent as any).afternoon_meal !== 0;
-
-        // Check Window Active Time (Admin Config Window Check)
-        const isBfWindowActive = isTimeInWindow(activeBfStart, activeBfEnd, activeBfExpiry);
-        const isLunchWindowActive = isTimeInWindow(activeLunchStart, activeLunchEnd, activeLunchExpiry);
-
-        const parseLocalISO = (strVal: any) => {
-          if (!strVal) return 0;
-          const clean = String(strVal).trim().replace('T', ' ').split('.')[0];
-          const parts = clean.split(' ');
-          if (parts.length >= 2) {
-            const dateParts = parts[0].split('-').map(Number);
-            const timeParts = parts[1].split(':').map(Number);
-            if (dateParts.length === 3 && timeParts.length >= 2) {
-              return new Date(
-                dateParts[0],
-                dateParts[1] - 1,
-                dateParts[2],
-                timeParts[0],
-                timeParts[1],
-                timeParts[2] || 0
-              ).getTime();
-            }
-          }
-          const fallback = new Date(strVal).getTime();
-          return isNaN(fallback) ? 0 : fallback;
-        };
-
-        const getMealState = async (
-          mealName: 'Breakfast' | 'Lunch',
-          isEligible: boolean,
-          isWindowActive: boolean
-        ): Promise<ActiveTokenState> => {
-          if (!isEligible) {
-            return { status: 'not_eligible', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
-          }
-
-          // Filter tokens for this meal today
-          const matchingTokens = allTokens.filter((t: any) => {
-            const mt = (t.meal_type || '').toLowerCase();
-            const isMealMatch = mealName === 'Breakfast' 
-              ? (mt.includes('breakfast') || mt.includes('forenoon')) 
-              : (mt.includes('lunch') || mt.includes('afternoon'));
-            if (!isMealMatch) return false;
-            const rawDateStr = t.created_at || t.generated_at || '';
-            const tokenDate = rawDateStr.split('T')[0].split(' ')[0];
-            return !tokenDate || tokenDate === todayStr;
-          });
-
-          if (matchingTokens.length === 0) {
-            return {
-              status: isWindowActive ? 'pending_approval' : 'closed',
-              qrCodeUrl: null,
-              expiresAtMs: 0,
-              tokenId: null
-            };
-          }
-
-          // Prioritize any active/approved token over old expired ones
-          const activeTok = matchingTokens.find((t: any) => {
-            const st = (t.status || '').toLowerCase();
-            return st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open';
-          });
-
-          const t = activeTok || matchingTokens[0];
-          const st = (t.status || '').toLowerCase();
-          const generatedAt = t.generated_at || t.created_at || t.issued_at;
-          const serverNowMs = t.server_current_time ? parseLocalISO(t.server_current_time) : Date.now();
-          const serverTimeOffset = serverNowMs > 0 ? (Date.now() - serverNowMs) : 0;
-
-          const expTimeStr = t.expiry_time || t.expires_at;
-          let expiresAtMs = parseLocalISO(expTimeStr);
-
-          if (expiresAtMs <= 0 && generatedAt) {
-            const genMs = parseLocalISO(generatedAt);
-            if (genMs > 0) {
-              expiresAtMs = genMs + (30 * 60 * 1000);
-            }
-          }
-
-          if (expiresAtMs > 0) {
-            expiresAtMs += serverTimeOffset;
-          }
-
-          const tokenId = t.token_id || t.token_uid || null;
-
-          if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
-            if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
-              if (!isWindowActive) {
-                return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
-              }
-              return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
-            }
-            let qrUrl: string | null = null;
-            if (tokenId) {
-              try {
-                qrUrl = await QRCode.toDataURL(tokenId, { width: 512, margin: 1, color: { dark: '#09090b', light: '#ffffff' } });
-              } catch { }
-            }
-            return { status: 'open', qrCodeUrl: qrUrl, expiresAtMs, tokenId };
-          } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
-            return { status: 'claimed', qrCodeUrl: null, expiresAtMs: 0, tokenId };
-          } else if (st === 'expired') {
-            if (!isWindowActive) {
-              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
-            }
-            return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
-          } else if (st === 'rejected') {
-            if (!isWindowActive) {
-              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
-            }
-            return { status: 'rejected', qrCodeUrl: null, expiresAtMs: 0, tokenId };
-          }
-
+        if (matchingTokens.length === 0) {
           return {
             status: isWindowActive ? 'pending_approval' : 'closed',
             qrCodeUrl: null,
             expiresAtMs: 0,
             tokenId: null
           };
+        }
+
+        // Prioritize any active/approved token over old expired ones
+        const activeTok = matchingTokens.find((t: any) => {
+          const st = (t.status || '').toLowerCase();
+          return st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open';
+        });
+
+        const t = activeTok || matchingTokens[0];
+        const st = (t.status || '').toLowerCase();
+        const generatedAt = t.generated_at || t.created_at || t.issued_at;
+        const serverNowMs = t.server_current_time ? parseLocalISO(t.server_current_time) : Date.now();
+        const serverTimeOffset = serverNowMs > 0 ? (Date.now() - serverNowMs) : 0;
+
+        const expTimeStr = t.expiry_time || t.expires_at;
+        let expiresAtMs = parseLocalISO(expTimeStr);
+
+        if (expiresAtMs <= 0 && generatedAt) {
+          const genMs = parseLocalISO(generatedAt);
+          if (genMs > 0) {
+            expiresAtMs = genMs + (30 * 60 * 1000);
+          }
+        }
+
+        if (expiresAtMs > 0) {
+          expiresAtMs += serverTimeOffset;
+        }
+
+        const tokenId = t.token_id || t.token_uid || null;
+
+        if (st === 'active' || st === 'awaiting_scan' || st === 'approved' || st === 'token_issued' || st === 'staff_verified' || st === 'open') {
+          if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
+            if (!isWindowActive) {
+              return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+            }
+            return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
+          }
+          let qrUrl: string | null = null;
+          if (tokenId) {
+            try {
+              qrUrl = await QRCode.toDataURL(tokenId, { width: 512, margin: 1, color: { dark: '#09090b', light: '#ffffff' } });
+            } catch { }
+          }
+          return { status: 'open', qrCodeUrl: qrUrl, expiresAtMs, tokenId };
+        } else if (st === 'redeemed' || st === 'claimed' || st === 'used') {
+          return { status: 'claimed', qrCodeUrl: null, expiresAtMs: 0, tokenId };
+        } else if (st === 'expired') {
+          if (!isWindowActive) {
+            return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+          }
+          return { status: 'expired', qrCodeUrl: null, expiresAtMs: 0, tokenId };
+        } else if (st === 'rejected') {
+          if (!isWindowActive) {
+            return { status: 'closed', qrCodeUrl: null, expiresAtMs: 0, tokenId: null };
+          }
+          return { status: 'rejected', qrCodeUrl: null, expiresAtMs: 0, tokenId };
+        }
+
+        return {
+          status: isWindowActive ? 'pending_approval' : 'closed',
+          qrCodeUrl: null,
+          expiresAtMs: 0,
+          tokenId: null
         };
+      };
 
-        const foundBreakfast = await getMealState('Breakfast', isBfEligible, isBfWindowActive);
-        const foundLunch = await getMealState('Lunch', isLunchEligible, isLunchWindowActive);
+      const foundBreakfast = await getMealState('Breakfast', isBfEligible, isBfWindowActive);
+      const foundLunch = await getMealState('Lunch', isLunchEligible, isLunchWindowActive);
 
-        setBreakfastToken(foundBreakfast);
-        setLunchToken(foundLunch);
+      setBreakfastToken(foundBreakfast);
+      setLunchToken(foundLunch);
 
-        // Update approval status for backward compat
-        if (foundBreakfast.status === 'open' || foundLunch.status === 'open' || foundBreakfast.status === 'active' || foundLunch.status === 'active') {
-          setStaffApprovalStatus('approved');
-        }
-        if (foundBreakfast.status === 'claimed' || foundLunch.status === 'claimed' || foundBreakfast.status === 'redeemed' || foundLunch.status === 'redeemed') {
-          setIsTokenUtilized(true);
-        }
-      } catch (err) {
-        console.warn('Token poll error:', err);
+      // Update approval status for backward compat
+      if (foundBreakfast.status === 'open' || foundLunch.status === 'open' || foundBreakfast.status === 'active' || foundLunch.status === 'active') {
+        setStaffApprovalStatus('approved');
       }
-    };
-
-    pollTokens();
-    const interval = setInterval(pollTokens, 8000);
-    return () => clearInterval(interval);
+      if (foundBreakfast.status === 'claimed' || foundLunch.status === 'claimed' || foundBreakfast.status === 'redeemed' || foundLunch.status === 'redeemed') {
+        setIsTokenUtilized(true);
+      }
+    } catch (err) {
+      console.warn('Token poll error:', err);
+    }
   }, [loggedInStudent]);
+
+  useSmartInterval(pollTokens, 8000, !!loggedInStudent);
+
 
   // === AUTO REFRESH STUDENT PROFILE FROM BACKEND ===
   useEffect(() => {

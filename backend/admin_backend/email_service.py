@@ -274,7 +274,7 @@ def send_volunteer_pass_email(to_email, volunteer_name, token_uid, meal_type, va
         msg = MIMEMultipart('alternative')
         msg['From'] = f"RKMVC Canteen Portal <{cfg['from']}>"
         msg['To'] = to_email
-        msg['Subject'] = f"🎓 RKMVC Volunteer Canteen Meal Pass - {token_uid}"
+        msg['Subject'] = f"RKMVC Meal Pass - {token_uid}"
 
         meal_title = "Forenoon (Breakfast)" if "forenoon" in str(meal_type).lower() else "Afternoon (Lunch)" if "afternoon" in str(meal_type).lower() else str(meal_type).upper()
         date_str = valid_date or datetime.now().strftime('%Y-%m-%d')

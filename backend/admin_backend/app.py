@@ -13,9 +13,17 @@ import openpyxl
 from admin_backend.extensions import db
 import requests
 import email_service
+from apscheduler.schedulers.background import BackgroundScheduler
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
+
+migration_scheduler = BackgroundScheduler(daemon=True)
+try:
+    migration_scheduler.start()
+    logger.info("APScheduler initialized for student year migration")
+except Exception as _sched_err:
+    logger.warning("APScheduler startup warning: %s", _sched_err)
 
 MYSQL_HOST = os.environ.get('MYSQL_HOST', '127.0.0.1')
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', '3306'))
@@ -1388,10 +1396,6 @@ def update_meal_timings():
 def get_students():
     conn = get_db()
     try:
-        try:
-            _check_and_run_automated_year_migration(conn)
-        except Exception as _me:
-            logger.warning("Migration check in get_students: %s", _me)
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM student_meals WHERE COALESCE(graduation_status, 0) = 0 ORDER BY student_id ASC")
             rows = cur.fetchall()
@@ -1630,75 +1634,99 @@ def _execute_revoke_year_migration(conn):
 
         conn.commit()
 
-def _check_and_run_automated_year_migration(conn):
-    """Checks if year_migration_date in app_state is set and <= NOW().
-       If so, executes year migration and advances scheduled datetime by +1 year until > NOW()."""
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT data FROM app_state WHERE id = 1 FOR UPDATE")
-            row = cur.fetchone()
-            if not row or not row.get('data'):
-                return
-            state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
-            meal_cfg = state.get('meal_config')
-            if not meal_cfg or not isinstance(meal_cfg, dict):
-                return
-            
-            migration_str = meal_cfg.get('year_migration_date')
-            if not migration_str or not str(migration_str).strip():
-                return
-            
-            migration_str = str(migration_str).strip()
-            skip_str = meal_cfg.get('skip_migration_date')
-            if skip_str and str(skip_str).strip() == migration_str:
-                return
-            dt_obj = None
-            formats = (
-                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
-                "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
-                "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
-                "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
-                "%Y/%m/%YT%H:%M:%S", "%Y/%m/%YT%H:%M", "%Y/%m/%Y %H:%M:%S", "%Y/%m/%Y %H:%M"
-            )
-            for fmt in formats:
-                try:
-                    dt_obj = datetime.datetime.strptime(migration_str, fmt)
-                    break
-                except ValueError:
-                    continue
-            
-            if not dt_obj:
-                logger.warning(f"Could not parse scheduled migration date: {migration_str}")
-                return
+def _parse_migration_date(migration_str):
+    """Parses a scheduled migration date string across multiple supported formats."""
+    if not migration_str or not str(migration_str).strip():
+        return None
+    migration_str = str(migration_str).strip()
+    formats = (
+        "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+        "%d-%m-%YT%H:%M:%S", "%d-%m-%YT%H:%M", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+        "%d/%m/%YT%H:%M:%S", "%d/%m/%YT%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
+        "%m/%d/%YT%H:%M:%S", "%m/%d/%YT%H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M",
+        "%Y/%m/%YT%H:%M:%S", "%Y/%m/%YT%H:%M", "%Y/%m/%Y %H:%M:%S", "%Y/%m/%Y %H:%M"
+    )
+    for fmt in formats:
+        try:
+            return datetime.datetime.strptime(migration_str, fmt)
+        except ValueError:
+            continue
+    return None
 
-            now = datetime.datetime.now()
-            if now >= dt_obj:
-                logger.info(f"Automated year migration triggered for scheduled date {migration_str} (current time {now})")
-                # 1. Execute year migration
+def _schedule_migration_job(target_dt):
+    """Schedules a delayed one-time job in APScheduler.
+       If target_dt <= NOW(), executes the migration immediately and schedules the next +1 year date.
+       Otherwise, registers/replaces the 'year_migration_job' for run_date=target_dt."""
+    if not target_dt:
+        return
+    now = datetime.datetime.now()
+    if target_dt <= now:
+        logger.info("Scheduled migration date %s is past/due. Executing immediately.", target_dt)
+        _run_scheduled_year_migration()
+    else:
+        logger.info("Scheduling APScheduler year_migration_job for target date: %s", target_dt)
+        try:
+            migration_scheduler.add_job(
+                _run_scheduled_year_migration,
+                'date',
+                run_date=target_dt,
+                id='year_migration_job',
+                replace_existing=True
+            )
+        except Exception as e:
+            logger.error("Failed to schedule year_migration_job in APScheduler: %s", e)
+
+def _run_scheduled_year_migration():
+    """Executed by APScheduler when scheduled target_dt arrives (or immediately if past due).
+       1. Executes SQL batch student year migration (_execute_year_migration).
+       2. Advances year_migration_date by +1 year until strictly in future.
+       3. Updates app_state in DB & logs audit trail.
+       4. Schedules next year's migration job in APScheduler."""
+    logger.info("Automated year migration job executing at %s", datetime.datetime.now())
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data FROM app_state WHERE id = 1 FOR UPDATE")
+                row = cur.fetchone()
+                if not row or not row.get('data'):
+                    return
+                state = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+                meal_cfg = state.get('meal_config')
+                if not meal_cfg or not isinstance(meal_cfg, dict):
+                    return
+
+                migration_str = meal_cfg.get('year_migration_date')
+                dt_obj = _parse_migration_date(migration_str)
+                now = datetime.datetime.now()
+                if not dt_obj:
+                    dt_obj = now
+
+                # 1. Execute year migration SQL batch
                 _execute_year_migration(conn)
-                
-                # 2. Advance next migration date by +1 year until it is strictly in the future
+
+                # 2. Advance target date by +1 year until strictly in future
                 next_dt = dt_obj
                 while next_dt <= now:
                     next_dt = _add_one_year(next_dt)
-                
+
                 new_migration_str = next_dt.strftime("%Y-%m-%dT%H:%M")
                 meal_cfg['year_migration_date'] = new_migration_str
                 meal_cfg.pop('skip_migration_date', None)
                 state['meal_config'] = meal_cfg
-                
+
                 cur.execute("UPDATE app_state SET data = %s WHERE id = 1", (json.dumps(state, ensure_ascii=False),))
                 conn.commit()
                 _log_audit('SYSTEM', 'AUTOMATED_YEAR_MIGRATION', 'student_meals', f"Automated year migration executed. Next migration set to {new_migration_str}")
+
+                # 3. Schedule next +1 year migration job
+                _schedule_migration_job(next_dt)
+        finally:
+            conn.close()
     except Exception as e:
-        logger.error("Error in _check_and_run_automated_year_migration: %s", e)
+        logger.error("Error in _run_scheduled_year_migration: %s", e)
 
 def _get_meal_config(conn):
-    try:
-        _check_and_run_automated_year_migration(conn)
-    except Exception as e:
-        logger.error("Error running year migration check in _get_meal_config: %s", e)
-
     year_migration_date = ""
     with conn.cursor() as cur:
         cur.execute("SELECT data FROM app_state WHERE id = 1")
@@ -1861,8 +1889,12 @@ def update_meal_config():
                 _sync_meal_windows(conn, cfg)
                 conn.commit()
             
-            # Immediately run migration check if the date was set in the past or is due
-            _check_and_run_automated_year_migration(conn)
+            # Schedule migration job via APScheduler
+            if normalized_mig_date:
+                dt_parse = _parse_migration_date(normalized_mig_date)
+                if dt_parse:
+                    _schedule_migration_job(dt_parse)
+
             final_cfg = _get_meal_config(conn)
         except Exception as sql_err:
             conn.rollback()
@@ -1876,28 +1908,26 @@ def update_meal_config():
         logger.error("Error in update_meal_config: %s", e)
         return jsonify({"error": str(e) if str(e) else sani(e)}), 400
 
-def _start_migration_scheduler():
-    def _scheduler_loop():
-        time.sleep(2)
-        logger.info("YearMigrationSchedulerThread daemon started (5s poll interval)")
-        while True:
-            try:
-                conn = get_db()
-                try:
-                    _check_and_run_automated_year_migration(conn)
-                finally:
-                    conn.close()
-            except Exception as e:
-                logger.error("Error in scheduler loop: %s", e)
-            time.sleep(5)
-    
-    t = threading.Thread(target=_scheduler_loop, daemon=True, name="YearMigrationSchedulerThread")
-    t.start()
+def _sync_migration_scheduler_on_boot():
+    """Syncs APScheduler year migration job on application startup based on app_state DB config."""
+    try:
+        conn = get_db()
+        try:
+            cfg = _get_meal_config(conn)
+            mig_str = cfg.get('year_migration_date')
+            if mig_str:
+                dt_obj = _parse_migration_date(mig_str)
+                if dt_obj:
+                    _schedule_migration_job(dt_obj)
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("APScheduler boot sync warning: %s", e)
 
 try:
-    _start_migration_scheduler()
+    _sync_migration_scheduler_on_boot()
 except Exception as _e:
-    logger.warning("Scheduler startup failed: %s", _e)
+    logger.warning("Scheduler boot sync failed: %s", _e)
 
 # Keep the /active endpoint for blueprints
 @admin_bp.route('/meal-windows/active', methods=['GET'])
@@ -2368,6 +2398,13 @@ def revoke_academic_year():
         conn = get_db()
         try:
             _execute_revoke_year_migration(conn)
+            # Sync APScheduler with the rolled back year_migration_date
+            cfg = _get_meal_config(conn)
+            mig_str = cfg.get('year_migration_date')
+            if mig_str:
+                dt_obj = _parse_migration_date(mig_str)
+                if dt_obj:
+                    _schedule_migration_job(dt_obj)
         finally:
             conn.close()
         _log_audit(_get_auditor_username(), 'REVOKE_YEAR_MIGRATION', 'student_meals', "Revoked student academic year progression by 1 step.")
