@@ -29,12 +29,14 @@ import {
   Activity,
   Search,
   Sun,
-  Moon
+  Moon,
+  HeartHandshake
 } from "lucide-react";
 import { Student, Token, TerminalSession, ScanMode } from "./types";
 import QRScanner from "./components/QRScanner";
 import { IssueTokenModal, VerifyTokenModal } from "./components/Modals";
 import StudentDetails from "./components/StudentDetails";
+import VolunteerPermitting from "./components/VolunteerPermitting";
 import rkmLogo from "./assets/images/rkm_logo.png";
 
 // Safely wrap sessionStorage to prevent SecurityErrors in sandboxed/cross-origin iframes
@@ -81,7 +83,7 @@ const getLocalDateString = (dateObj: Date = new Date()): string => {
 
 export default function App() {
   // Navigation & Filtering States
-  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "export" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "volunteers" | "export" | "settings">("dashboard");
   const [session, setSession] = useState<TerminalSession | null>({
     staffId: "STAFF101",
     terminalName: "Office Registration Desk 1",
@@ -1104,6 +1106,21 @@ export default function App() {
 
             <button
               onClick={() => {
+                setActiveTab("volunteers");
+                if (window.innerWidth < 768) setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "volunteers"
+                  ? "bg-amber-50 text-[#FF9933] border border-amber-200"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent"
+              }`}
+            >
+              <HeartHandshake className="w-4.5 h-4.5 shrink-0 text-[#FF9933]" />
+              <span>Volunteer Passes</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab("export");
                 if (window.innerWidth < 768) setIsSidebarOpen(false);
               }}
@@ -1185,6 +1202,8 @@ export default function App() {
             <div className="text-left">
               <h3 className="text-base md:text-lg font-black text-slate-800 tracking-tight font-display">
                 {activeTab === "dashboard" && "Dashboard"}
+                {activeTab === "students" && "Student Details"}
+                {activeTab === "volunteers" && "Volunteer Permitting & Passes"}
                 {activeTab === "export" && "Export"}
                 {activeTab === "settings" && "Settings"}
               </h3>
@@ -1261,6 +1280,32 @@ export default function App() {
 
         {/* Dynamic page content viewport */}
         <main className="flex-grow p-6 md:p-8 overflow-y-auto">
+          
+          {/* B: STUDENT DETAILS VIEW */}
+          {activeTab === "students" && (
+            <div className="space-y-8 max-w-7xl mx-auto w-full animate-in fade-in duration-300">
+              <StudentDetails
+                students={students}
+                tokens={tokens}
+                activeRole={activeRole}
+                onSelectStudentForIssuance={(student) => {
+                  setCurrentStudent(student);
+                  setIsIssueModalOpen(true);
+                }}
+              />
+            </div>
+          )}
+
+          {/* C: VOLUNTEER PERMITTING & PASSES VIEW */}
+          {activeTab === "volunteers" && (
+            <div className="space-y-8 max-w-7xl mx-auto w-full animate-in fade-in duration-300">
+              <VolunteerPermitting
+                staffId={session?.staffId || "STAFF101"}
+                showToast={showToast}
+                playBeep={playBeep}
+              />
+            </div>
+          )}
           
           {/* A: DASHBOARD VIEW */}
           {activeTab === "dashboard" && (

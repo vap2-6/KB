@@ -129,6 +129,7 @@ def _registration_columns():
         { "name": "father_occupation", "type": "TEXT", "nullable": True },
         { "name": "forenoon_meal", "type": "BOOLEAN", "nullable": False },
         { "name": "afternoon_meal", "type": "BOOLEAN", "nullable": False },
+        { "name": "is_ncc_student", "type": "BOOLEAN", "nullable": False },
         { "name": "annual_income", "type": "TEXT", "nullable": True },
         { "name": "distance_km", "type": "TEXT", "nullable": True },
         { "name": "status", "type": "TEXT", "nullable": False },
@@ -195,6 +196,7 @@ def push_registration_to_central_db(row):
                     father_occupation VARCHAR(100) NULL,
                     forenoon_meal TINYINT(1) DEFAULT 1,
                     afternoon_meal TINYINT(1) DEFAULT 1,
+                    is_ncc_student TINYINT(1) NOT NULL DEFAULT 0,
                     annual_income VARCHAR(50) NULL,
                     distance_km VARCHAR(50) NULL,
                     permanent_address TEXT NULL,
@@ -230,6 +232,7 @@ def push_registration_to_central_db(row):
                 ('student_photo_url', 'VARCHAR(512) NULL'),
                 ('applicant_signature_url', 'VARCHAR(512) NULL'),
                 ('income_proof_url', 'VARCHAR(512) NULL'),
+                ('is_ncc_student', 'TINYINT(1) NOT NULL DEFAULT 0'),
             ]:
                 try:
                     cur.execute(f"ALTER TABLE meal_registrations ADD COLUMN {col} {col_def}")
@@ -240,20 +243,21 @@ def push_registration_to_central_db(row):
                 INSERT INTO meal_registrations (
                     registration_id, app_no, student_name, dob_age, date_of_birth, age, course, department,
                     degree_year, dept_number, mobile_no, email, father_name, father_occupation,
-                    forenoon_meal, afternoon_meal, annual_income, distance_km, permanent_address,
+                    forenoon_meal, afternoon_meal, is_ncc_student, annual_income, distance_km, permanent_address,
                     permanent_pin, local_address, local_pin, landline, employment_type, religion,
                     community, last_year_id, student_image_path, student_photo_url, signature_path,
                     applicant_signature_url, income_proof_path, income_proof_url, generated_pdf_url, status
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s
                 ) ON DUPLICATE KEY UPDATE
                     date_of_birth=VALUES(date_of_birth),
                     age=VALUES(age),
+                    is_ncc_student=VALUES(is_ncc_student),
                     student_image_path=VALUES(student_image_path),
                     student_photo_url=VALUES(student_photo_url),
                     signature_path=VALUES(signature_path),
@@ -266,7 +270,8 @@ def push_registration_to_central_db(row):
                 row.get('date_of_birth'), row.get('age'),
                 row.get('course'), row.get('department'), row.get('degree_year'), row.get('dept_number'),
                 row.get('mobile_no'), row.get('email'), row.get('father_name'), row.get('father_occupation'),
-                bool(row.get('forenoon_meal')), bool(row.get('afternoon_meal')), row.get('annual_income'),
+                bool(row.get('forenoon_meal')), bool(row.get('afternoon_meal')), bool(row.get('is_ncc_student')),
+                row.get('annual_income'),
                 row.get('distance_km'), row.get('permanent_address'), row.get('permanent_pin'),
                 row.get('local_address'), row.get('local_pin'), row.get('landline'), row.get('employment_type'),
                 row.get('religion'), row.get('community'), row.get('last_year_id'),
@@ -731,6 +736,7 @@ def register_student():
         if both_meal or (not forenoon_meal and not afternoon_meal):
             forenoon_meal = True
             afternoon_meal = True
+        is_ncc_student = bool(data.get('is_ncc_student'))
         if not religion:
             return jsonify({"error": "Religion is required."}), 400
         if not community:
@@ -934,6 +940,7 @@ def register_student():
             [Paragraph("Community", label_style), Paragraph(f":  {community}", val_style), ""],
             [Paragraph("Distance to College", label_style), Paragraph(f":  {distance_km} Km", val_style), ""],
             [Paragraph("Meal Session Required", label_style), Paragraph(f":  {meal_session}", val_style), ""],
+            [Paragraph("NCC Student", label_style), Paragraph(f":  {'Yes' if is_ncc_student else 'No'}", val_style), ""],
             [Paragraph("Permanent Address", label_style), Paragraph(f":  {permanent_address} (PIN: {permanent_pin})", val_style), ""],
         [Paragraph("Local Address", label_style), Paragraph(f":  {local_address} (PIN: {local_pin})", val_style), ""]
         ]
@@ -998,6 +1005,7 @@ def register_student():
             "father_occupation": father_occupation,
             "forenoon_meal": forenoon_meal,
             "afternoon_meal": afternoon_meal,
+            "is_ncc_student": is_ncc_student,
             "annual_income": annual_income,
             "distance_km": distance_km,
             "permanent_address": permanent_address,

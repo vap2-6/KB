@@ -33,11 +33,14 @@ ENV_FILE_ABS="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
 echo "Loading environment variables from $ENV_FILE_ABS"
 
 while IFS='=' read -r key value; do
+  key="${key//$'\r'/}"
+  # trim leading/trailing whitespace from key (pure bash, no xargs)
+  key="${key#"${key%%[![:space:]]*}"}"
+  key="${key%"${key##*[![:space:]]}"}"
   case "$key" in
     ''|'#'*) continue ;;
   esac
-  key="$(echo "$key" | tr -d '\r' | xargs)"
-  value="$(echo "$value" | tr -d '\r')"
+  value="${value//$'\r'/}"
   value="${value%\"}"; value="${value#\"}"
   export "$key=$value"
 done < "$ENV_FILE"
@@ -142,36 +145,6 @@ if ! mysql_probe; then
 fi
 echo "MySQL connection verified."
 
-start_compose_nginx() {
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    echo
-    echo "── Launching Docker Nginx Reverse Proxy Container ──"
-    docker compose up -d nginx
-    echo "Nginx Reverse Proxy active on http://localhost:5050 (and http://localhost:80)"
-  else
-    # Check for Native Windows Nginx installed via WinGet or PATH
-    LOCAL_NGINX_EXE=""
-    if command -v nginx >/dev/null 2>&1; then
-      LOCAL_NGINX_EXE="nginx"
-    elif [ -n "$LOCALAPPDATA" ]; then
-      WINGET_NGINX="$(find "$LOCALAPPDATA/Microsoft/WinGet/Packages" -name "nginx.exe" 2>/dev/null | head -n 1)"
-      if [ -n "$WINGET_NGINX" ] && [ -f "$WINGET_NGINX" ]; then
-        LOCAL_NGINX_EXE="$WINGET_NGINX"
-      fi
-    fi
-
-    if [ -n "$LOCAL_NGINX_EXE" ]; then
-      echo
-      echo "── Launching Native Windows Nginx Server ($LOCAL_NGINX_EXE) ──"
-      "$LOCAL_NGINX_EXE" -s stop 2>/dev/null || true
-      "$LOCAL_NGINX_EXE" -c "$PROJECT_ROOT/nginx/nginx-native.conf" -p "$PROJECT_ROOT/nginx" &
-      echo "Native Nginx active on http://localhost:8080 (Proxied to Python API)"
-    else
-      echo "Notice: Neither Docker Desktop nor native Nginx found — running with Flask dev server."
-    fi
-  fi
-}
-
 for frontend_dir in frontend-admin frontend-staff frontend-canteen frontend-stud frontend-reg; do
   echo
   echo "── Building $frontend_dir ──"
@@ -180,9 +153,6 @@ for frontend_dir in frontend-admin frontend-staff frontend-canteen frontend-stud
   VITE_API_URL="http://localhost:5050" REACT_APP_API_URL="http://localhost:5050" npm run build
 done
 
-start_compose_nginx
-
-echo
-echo "Starting Unified Flask backend API server (Proxied via Nginx on http://localhost:5050)"
+echo "Starting Unified Flask backend on http://localhost:5050"
 cd "$PROJECT_ROOT/backend/server"
 "$PYTHON_CMD" main.py

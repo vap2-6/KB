@@ -50,22 +50,18 @@ db_config = {
     'user': os.environ.get('DB_USER', os.environ.get('MYSQL_USER', 'meal_app')),
     'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQL_PASSWORD', 'Admin@RKMVC2')),
     'host': os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', '127.0.0.1')),
-    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', '3307'))),
     'database': os.environ.get('DB_DATABASE', os.environ.get('MYSQL_DATABASE', 'rkmvc_mealflow_db')),
     'raise_on_warnings': True
 }
 
 def get_db_connection():
     primary_host = os.environ.get('DB_HOST', os.environ.get('MYSQL_HOST', '127.0.0.1'))
-    primary_port = int(os.environ.get('DB_PORT', os.environ.get('MYSQL_PORT', '3307')))
     try:
         cfg = dict(db_config)
         cfg['host'] = primary_host
-        cfg['port'] = primary_port
         return mysql.connector.connect(**cfg)
     except Exception as primary_err:
-        hosts = [primary_host, '127.0.0.1', 'localhost', 'db']
-        ports = [primary_port, 3307, 3306]
+        hosts = [primary_host, 'db', '127.0.0.1', 'localhost']
         users_passwords = [
             (db_config.get('user', 'meal_app'), db_config.get('password', 'Admin@RKMVC2')),
             ('rkmvc_app', os.environ.get('MYSQL_PASSWORD', 'rkmvc_app_password')),
@@ -74,17 +70,15 @@ def get_db_connection():
             ('root', '')
         ]
         for h in dict.fromkeys(hosts):
-            for port in dict.fromkeys(ports):
-                for u, p in users_passwords:
-                    try:
-                        cfg = dict(db_config)
-                        cfg['host'] = h
-                        cfg['port'] = port
-                        cfg['user'] = u
-                        cfg['password'] = p
-                        return mysql.connector.connect(**cfg)
-                    except Exception:
-                        continue
+            for u, p in users_passwords:
+                try:
+                    cfg = dict(db_config)
+                    cfg['host'] = h
+                    cfg['user'] = u
+                    cfg['password'] = p
+                    return mysql.connector.connect(**cfg)
+                except Exception:
+                    continue
         raise primary_err
 
 # Helper functions to map DB objects to the schema the frontend expects
@@ -618,172 +612,6 @@ def scan_qr():
         return jsonify({'error': str(e)}), 500
 
 
-@staff_bp.route('/volunteer-tokens', methods=['GET'])
-@staff_bp.route('/api/volunteer-tokens', methods=['GET'])
-@staff_bp.route('/api/staff/volunteer-tokens', methods=['GET'])
-def get_volunteer_tokens():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        try:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS volunteer_tokens (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    token_id VARCHAR(50) UNIQUE NOT NULL,
-                    volunteer_name VARCHAR(100) NOT NULL,
-                    volunteer_role VARCHAR(100) NULL,
-                    phone_no VARCHAR(50) NULL,
-                    email VARCHAR(100) NULL,
-                    meal_type VARCHAR(100) NOT NULL,
-                    status VARCHAR(50) DEFAULT 'active',
-                    staff_id VARCHAR(50) NULL,
-                    valid_date VARCHAR(50) NULL,
-                    note TEXT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
-        except Exception:
-            pass
-
-        cursor.execute("SELECT * FROM volunteer_tokens ORDER BY created_at DESC LIMIT 100")
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        for r in rows:
-            if isinstance(r.get('created_at'), datetime):
-                r['created_at'] = r['created_at'].isoformat()
-            if isinstance(r.get('valid_date'), (datetime, dt_time)):
-                r['valid_date'] = str(r['valid_date'])
-        return jsonify(rows), 200
-    except Exception as e:
-        return jsonify([]), 200
-
-@staff_bp.route('/volunteer-tokens', methods=['POST'])
-@staff_bp.route('/api/volunteer-tokens', methods=['POST'])
-@staff_bp.route('/api/staff/volunteer-tokens', methods=['POST'])
-def create_volunteer_token():
-    try:
-        data = request.json or {}
-        volunteer_name = (data.get('volunteer_name') or '').strip()
-        volunteer_role = (data.get('volunteer_role') or 'Guest').strip()
-        phone_no = (data.get('phone_no') or '').strip()
-        email = (data.get('email') or '').strip()
-        pass_count = int(data.get('pass_count') or 1)
-        send_via = data.get('send_via') or 'both'
-        staff_id = data.get('staff_id') or 'STAFF101'
-        valid_date = data.get('valid_date') or datetime.now().strftime('%Y-%m-%d')
-        note = (data.get('note') or '').strip()
-
-        if not volunteer_name:
-            return jsonify({'error': 'Volunteer Name is required.'}), 400
-
-        token_uid = f"GUS-{int(datetime.now().timestamp())}"
-        meal_type = f"{pass_count} Meal Pass ({'Both Meals' if pass_count >= 2 else 'Single Meal'})"
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        try:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS volunteer_tokens (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    token_id VARCHAR(50) UNIQUE NOT NULL,
-                    volunteer_name VARCHAR(100) NOT NULL,
-                    volunteer_role VARCHAR(100) NULL,
-                    phone_no VARCHAR(50) NULL,
-                    email VARCHAR(100) NULL,
-                    meal_type VARCHAR(100) NOT NULL,
-                    status VARCHAR(50) DEFAULT 'active',
-                    staff_id VARCHAR(50) NULL,
-                    valid_date VARCHAR(50) NULL,
-                    note TEXT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
-        except Exception as _tbl_e:
-            pass
-
-        cursor.execute("""
-            INSERT INTO volunteer_tokens (token_id, volunteer_name, volunteer_role, phone_no, email, meal_type, status, staff_id, valid_date, note)
-            VALUES (%s, %s, %s, %s, %s, %s, 'active', %s, %s, %s)
-        """, (token_uid, volunteer_name, volunteer_role, phone_no, email, meal_type, staff_id, valid_date, note))
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        email_sent = False
-        if email and send_via in ('email', 'both'):
-            try:
-                import email_service
-                email_sent = email_service.send_volunteer_pass_email(
-                    to_email=email,
-                    volunteer_name=volunteer_name,
-                    token_uid=token_uid,
-                    meal_type=meal_type,
-                    valid_date=valid_date,
-                    volunteer_role=volunteer_role,
-                    issuer_name="RKMVC Staff Office"
-                )
-            except Exception as em_err:
-                print("Email dispatch error:", em_err, flush=True)
-
-        return jsonify({
-            'message': 'Volunteer token permitted successfully',
-            'token_uid': token_uid,
-            'primary_token_uid': token_uid,
-            'volunteer_name': volunteer_name,
-            'volunteer_role': volunteer_role,
-            'valid_date': valid_date,
-            'phone_no': phone_no,
-            'email': email,
-            'email_sent': email_sent
-        }), 201
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@staff_bp.route('/volunteer-tokens/resend-email', methods=['POST'])
-@staff_bp.route('/api/volunteer-tokens/resend-email', methods=['POST'])
-@staff_bp.route('/api/staff/volunteer-tokens/resend-email', methods=['POST'])
-def resend_volunteer_email():
-    try:
-        data = request.json or {}
-        token_id = data.get('token_id')
-        email = data.get('email')
-        if not token_id or not email:
-            return jsonify({'error': 'token_id and email are required'}), 400
-
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM volunteer_tokens WHERE token_id = %s LIMIT 1", (token_id,))
-        token_rec = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        vol_name = token_rec.get('volunteer_name') if token_rec else 'Guest'
-        vol_role = token_rec.get('volunteer_role') if token_rec else 'Event Volunteer'
-        meal_type = token_rec.get('meal_type') if token_rec else '1 Meal Pass'
-        valid_date = token_rec.get('valid_date') if token_rec else None
-
-        import email_service
-        sent = email_service.send_volunteer_pass_email(
-            to_email=email,
-            volunteer_name=vol_name,
-            token_uid=token_id,
-            meal_type=meal_type,
-            valid_date=valid_date,
-            volunteer_role=vol_role,
-            issuer_name="RKMVC Staff Office"
-        )
-        if sent:
-            return jsonify({'message': 'Email dispatched successfully'})
-        else:
-            return jsonify({'error': 'Failed to send email'}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 if __name__ == '__main__':
     pass
     # app.run(debug=True, host='0.0.0.0', port=5000)
-

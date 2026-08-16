@@ -167,6 +167,10 @@ export default function MealRegistrationForm() {
                     const el = document.getElementById('distance_km');
                     if (el) el.value = fetchedData.distance_km;
                 }
+                if (fetchedData.is_ncc_student !== undefined) {
+                    const el = document.getElementById('is_ncc_student');
+                    if (el) el.checked = !!fetchedData.is_ncc_student;
+                }
                 if (fetchedData.forenoon_meal !== undefined || fetchedData.afternoon_meal !== undefined) {
                     if (fetchedData.forenoon_meal && fetchedData.afternoon_meal) {
                         setMealSession('both');
@@ -497,6 +501,10 @@ export default function MealRegistrationForm() {
         }
         const pMealSession = document.getElementById('p-meal-session');
         if (pMealSession) pMealSession.innerText = sessions.length ? sessions.join(' & ') : 'None selected';
+
+        const isNccStudent = document.getElementById('is_ncc_student');
+        const pNcc = document.getElementById('p-ncc');
+        if (pNcc) pNcc.innerText = isNccStudent?.checked ? 'Yes' : 'No';
 
         if (previewModalRef.current) {
             previewModalRef.current.classList.remove('hidden');
@@ -984,6 +992,17 @@ export default function MealRegistrationForm() {
                             {mealSession === 'afternoon' && <input type="hidden" name="afternoon_meal" value="on" />}
                             {mealSession === 'both' && <input type="hidden" name="both_meal" value="on" />}
                         </div>
+                        <div className="md:col-span-2">
+                            <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-amber-50 transition-colors w-fit">
+                                <input
+                                    type="checkbox"
+                                    id="is_ncc_student"
+                                    name="is_ncc_student"
+                                    className="w-4 h-4 accent-amber-700 cursor-pointer"
+                                />
+                                <span className="text-sm font-medium text-gray-700">I am an NCC Cadet / NCC Student</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1099,6 +1118,7 @@ export default function MealRegistrationForm() {
                             <p><strong>Community:</strong> <span id="p-community"></span></p>
                             <p><strong>Distance to College:</strong> <span id="p-dist"></span> Km</p>
                             <p><strong>Meal Session:</strong> <span id="p-meal-session" className="font-semibold text-amber-900"></span></p>
+                            <p><strong>NCC Student:</strong> <span id="p-ncc"></span></p>
                         </div>
                         <div className="border p-2.5 rounded bg-amber-50/30 text-center">
                             <img id="modal-signature-view" src="#" alt="Student Signature" className="w-full h-auto max-h-24 object-contain border border-gray-300 rounded" />

@@ -19,7 +19,6 @@ import InvoiceModule from './components/InvoiceModule';
 import Toast, { ToastType } from './components/Toast';
 import MealReportScheduler from './components/MealReportScheduler';
 import api from './lib/api';
-import { useSmartInterval } from './hooks/useSmartInterval';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
@@ -111,7 +110,11 @@ export default function App() {
     }
   };
 
-  useSmartInterval(fetchSystemStatus, 15000);
+  useEffect(() => {
+    fetchSystemStatus();
+    const statusInterval = setInterval(fetchSystemStatus, 15000);
+    return () => clearInterval(statusInterval);
+  }, []);
 
   const showToast = (message: string, type: ToastType) => {
     setToast({ message, type });

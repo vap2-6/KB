@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bell, X, Check, XCircle, ChevronDown, ChevronUp, Loader2, Maximize2 } from 'lucide-react';
 import api from '../lib/api';
-import { useSmartInterval } from '../hooks/useSmartInterval';
 import { ToastType } from './Toast';
 import MediaLightbox, { LightboxMediaItem } from './MediaLightbox';
 
@@ -146,7 +145,11 @@ export default function RegistrationRequests({ showToast, onCountChange }: Regis
     }
   };
 
-  useSmartInterval(fetchPending, POLL_INTERVAL_MS);
+  useEffect(() => {
+    fetchPending();
+    const interval = setInterval(fetchPending, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleAction = async (registrationId: string, action: 'approve' | 'reject' | 'forenoon' | 'afternoon') => {
     setActingOn(registrationId);

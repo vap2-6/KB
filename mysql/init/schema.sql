@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS `student_meals` (
   `image_path` VARCHAR(512) NULL DEFAULT NULL, -- Local storage filepath
   `previous_degree_year` VARCHAR(50) NULL,
   `graduation_status` TINYINT(1) NOT NULL DEFAULT 0, -- 0 = Active Enrolled, 1 = Recent Graduate
+  `is_ncc_student` TINYINT(1) NOT NULL DEFAULT 0, -- 0 = General Student, 1 = NCC Cadet
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`student_id`),
   UNIQUE KEY `idx_student_username` (`username`)

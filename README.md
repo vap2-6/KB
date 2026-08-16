@@ -4,17 +4,17 @@ A complete, full-stack Ramakrishna Mission Vivekananda College (RKMVC) Meal Toke
 
 ---
 
-## 🏛️ Centralized Architecture & Nginx Reverse Proxy (Port 80 / 5050)
+## 🏛️ Centralized Architecture & Unified Routing (Port 5050)
 
 ```
                                ┌────────────────────────────────────────┐
                                │           Web Browser Clients          │
                                └──────────────────┬─────────────────────┘
-                                                  │ HTTP (Port :80 / :5050)
+                                                  │ HTTP (Port :5050)
                                                   ▼
                                ┌────────────────────────────────────────┐
-                               │          Nginx Reverse Proxy           │
-                               │  (Static SPA Server & Proxy Gateway)   │
+                               │        Central Flask Web Server        │
+                               │        (Unified Gateway on :5050)      │
                                └─┬────────────┬───────────┬───────────┬─┘
                                  │            │           │           │
                                  ▼ /admin/    ▼ /staff/   ▼ /student/ ▼ /register/
@@ -23,29 +23,22 @@ A complete, full-stack Ramakrishna Mission Vivekananda College (RKMVC) Meal Toke
                                │  Portal  │ │  Portal  │ │  Portal  │ │  Form    │
                                └──────────┘ └──────────┘ └──────────┘ └──────────┘
                                                   │
-                                                  │ API Proxy (/api/*)
-                                                  ▼
-                               ┌────────────────────────────────────────┐
-                               │        Python (Flask/Gunicorn)         │
-                               │      Dedicated API & APScheduler       │
-                               └──────────────────┬─────────────────────┘
-                                                  │ (PyMySQL / InnoDB Engine)
-                                                  ▼
+                                                  ▼ (MySQL Connector / Database Queries)
                                ┌────────────────────────────────────────┐
                                │             MySQL Database             │
-                               │            (Port :3306 / :3307)        │
+                               │       (Port :3306, InnoDB Engine)      │
                                └────────────────────────────────────────┘
 ```
 
 ### Portal Routing & Endpoint Mapping
-* **Portal Hub Landing Page:** `http://localhost:5050/` or `http://localhost/`
+* **Portal Hub Landing Page:** `http://localhost:5050/`
 * **Student Registration Portal (`/frontend-reg`):** `http://localhost:5050/register/` — Public sign-up interface for students to fill registration details, review, and submit for admin approval.
 * **Admin Portal (`/frontend-admin`):** `http://localhost:5050/admin/` — Supervisor portal featuring notification popups for pending registration requests, student roster management, and live token distribution history monitoring.
 * **Staff Dining Portal (`/frontend-staff`):** `http://localhost:5050/staff/` — Dual-role terminal for:
   * **Approval Staff (`approval_staff`):** Scans student registration QR codes and generates meal tokens based on active time windows (7 AM - 10 AM Breakfast, 12 PM - 7 PM Lunch).
   * **Canteen Staff (`canteen_staff`):** Scans generated student QR codes, verifies student profile photo & name, and updates token status (`redeemed` / `rejected`).
 * **Student Portal / Dining Kiosk (`/frontend-stud`):** `http://localhost:5050/student/` — Student portal featuring mandatory first-time password change, dual Breakfast & Lunch token cards, active QR code rendering, and real-time claimed status synchronization.
-* **Central API Backend (`/backend`):** Central Python Flask/Gunicorn gateway mounted on `/api/` (handling `/api/admin`, `/api/staff`, `/api/student`, `/api/register`), proxied via Nginx.
+* **Central API Backend (`/backend`):** Central gateway mounted on `/api/` (handling `/api/admin`, `/api/staff`, `/api/student`, `/api/register`).
 
 ---
 
@@ -84,32 +77,6 @@ A complete, full-stack Ramakrishna Mission Vivekananda College (RKMVC) Meal Toke
 ## 🔒 System Authentication & Security
 
 Administrative and staff terminal access is controlled via system-provisioned operator credentials and role-based permissions (`admin`, `approval_staff`, `canteen_staff`). Student accounts are created dynamically through the registration portal (`/register/`) or administrative import.
-
----
-
-## 📋 Software Requirements & Prerequisites
-
-Before running the application, ensure the following core software components are installed on your environment:
-
-### Core System Requirements
-| Software / Dependency | Required Version | Purpose / Role | Installation / Command |
-| :--- | :--- | :--- | :--- |
-| **Node.js & npm** | `18.0+` (LTS recommended) | Building React SPAs (`frontend-*`) | Download from [nodejs.org](https://nodejs.org) |
-| **Python** | `3.10+` | Executing Flask API Backend, SQLAlchemy, & `APScheduler` | Download from [python.org](https://www.python.org) |
-| **MySQL Server** | `8.0+` (or MariaDB) | Primary relational database (`rkmvc_mealflow_db`) | `python setup_local_db.py` (or Docker) |
-| **Nginx Web Server** | `1.24+` | High-performance Reverse Proxy & Static SPA Server | `winget install nginxinc.nginx` (or Docker container) |
-| **Docker Desktop** | *(Optional/Recommended)* | Containerized orchestration (`docker compose up -d`) | Download from [docker.com](https://www.docker.com/products/docker-desktop/) |
-
----
-
-### Python Backend Dependencies 
-Installed automatically during `./run-local.sh` or via `pip install -r backend/server/requirements.txt`:
-* **Web Framework & Rate Limiting:** `Flask==3.0.3`, `Flask-CORS==4.0.1`, `Flask-Limiter==3.8.0`
-* **Database & ORM:** `PyMySQL==1.1.1`, `mysql-connector-python==8.4.0`, `SQLAlchemy==2.0.36`, `Flask-SQLAlchemy==3.1.1`
-* **Event-Driven Task Scheduler:** `APScheduler==3.10.4` (Manages zero-polling Academic Year Migration)
-* **Authentication & Cryptography:** `PyJWT==2.8.0`, `bcrypt==4.1.2`, `cryptography==42.0.5`
-* **Document & Image Utilities:** `reportlab==4.1.0` (PDFs), `qrcode[pil]`, `Pillow>=11.0.0`, `openpyxl==3.1.5`
-* **WSGI Production Server:** `gunicorn==23.0.0`
 
 ---
 
